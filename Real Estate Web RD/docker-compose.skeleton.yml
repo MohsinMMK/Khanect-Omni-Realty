@@ -1,0 +1,116 @@
+# docker-compose.skeleton.yml
+# Skeleton only. Review official Twenty compose variables before production.
+
+services:
+  reverse-proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /data/caddy:/data
+      - /data/caddy-config:/config
+    depends_on:
+      - app
+      - twenty-server
+
+  postgres:
+    image: pgvector/pgvector:pg18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - /data/redis:/data
+
+  app:
+    image: ghcr.io/khanect/realestate-app:${APP_VERSION}
+    restart: unless-stopped
+    command: ["node", "dist/api/index.js"]
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - clamav
+    volumes:
+      - /data/uploads:/app/uploads
+
+  worker:
+    image: ghcr.io/khanect/realestate-app:${APP_VERSION}
+    restart: unless-stopped
+    command: ["node", "dist/worker/index.js"]
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - clamav
+    volumes:
+      - /data/uploads:/app/uploads
+      - /data/rag-models:/models
+
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - /data/clamav:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  rag-embedder:
+    image: ghcr.io/khanect/bge-m3-embedder:${EMBEDDER_VERSION}
+    restart: unless-stopped
+    environment:
+      MODEL_NAME: BAAI/bge-m3
+    volumes:
+      - /data/rag-models:/models
+
+  llm-server:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["local-ai"]
+    volumes:
+      - /data/llm-models:/root/.ollama
+
+  twenty-server:
+    image: twentycrm/twenty:${TWENTY_VERSION}
+    restart: unless-stopped
+    env_file: .env.twenty
+    depends_on:
+      - postgres
+      - redis
+
+  twenty-worker:
+    image: twentycrm/twenty:${TWENTY_VERSION}
+    restart: unless-stopped
+    command: ["yarn", "worker:prod"]
+    env_file: .env.twenty
+    depends_on:
+      - postgres
+      - redis
+
+  backup:
+    image: postgres:18
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /data/backups:/backups
+      - /data/uploads:/uploads:ro
+      - ./scripts:/scripts:ro
+    command: ["bash", "/scripts/backup-loop.sh"]

@@ -1,5 +1,5 @@
 {
-  "name": "Khanect Omni Realty",
+  "name": "khanect-omni-realty",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -7,16 +7,23 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "test": "turbo run test --filter=api --filter=worker --filter=@workspace/config --filter=@workspace/core",
+    "typecheck": "turbo typecheck",
+    "db:generate": "pnpm --filter @workspace/db db:generate",
+    "db:migrate": "pnpm --filter @workspace/db db:migrate",
+    "smoke:phase1a-db": "pnpm --filter @workspace/db smoke:phase1a",
+    "check:openapi": "node scripts/check-openapi.mjs",
+    "check:compose": "scripts/check-compose.sh"
   },
   "devDependencies": {
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "turbo": "^2.9.15",
-    "typescript": "~6"
+    "typescript": "~6",
+    "yaml": "^2.9.0"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }

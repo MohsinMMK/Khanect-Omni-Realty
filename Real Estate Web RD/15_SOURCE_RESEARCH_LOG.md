@@ -1,0 +1,98 @@
+# Source Research Log
+
+Research date: 21 June 2026. Sources are used to validate stack/version/compliance assumptions.
+
+- [S1] **Superseded frontend research: Next.js 16.2 release blog** - https://nextjs.org/blog/next-16-2
+  - Note: Kept for audit history only. V1 now targets Vite + Fastify instead of Next.js.
+- [S2] **Superseded frontend research: Next.js self-hosting docs** - https://nextjs.org/docs/app/guides/self-hosting
+  - Note: Kept for audit history only. V1 deployment now serves Vite static assets from Fastify in the `app` container.
+- [S3] **Superseded frontend research: Next.js Docker deployment docs** - https://nextjs.org/docs/app/getting-started/deploying
+  - Note: Kept for audit history only. V1 Docker architecture now uses one custom app image running as `app` and `worker`, plus official Twenty services.
+- [S4] **React versions page** - https://react.dev/versions
+  - Note: React docs list latest major/minor documentation version as React 19.2.
+- [S5] **Node.js previous releases** - https://nodejs.org/en/about/previous-releases
+  - Note: Node.js v24 is LTS; v26 is Current in June 2026 and becomes LTS later.
+- [S6] **Node.js release schedule announcement** - https://nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule
+  - Note: Node.js 26 follows the existing schedule and enters LTS in October 2026.
+- [S7] **PostgreSQL 18.4 release announcement** - https://www.postgresql.org/about/news/postgresql-184-1710-1614-1518-and-1423-released-3297/
+  - Note: PostgreSQL 18.4 was released on 14 May 2026 and fixes security vulnerabilities and bugs.
+- [S8] **PostgreSQL versioning policy** - https://www.postgresql.org/support/versioning/
+  - Note: PostgreSQL recommends users run the current minor release for their major version.
+- [S9] **pgvector changelog** - https://github.com/pgvector/pgvector/blob/master/CHANGELOG.md
+  - Note: pgvector 0.8.3 was dated 17 June 2026 with HNSW vacuum and Postgres 18 fixes.
+- [S10] **pgvector README** - https://github.com/pgvector/pgvector
+  - Note: pgvector provides vector similarity search for PostgreSQL and Docker images for Postgres 18.
+- [S11] **Twenty self-host docs** - https://docs.twenty.com/developers/self-host/self-host
+  - Note: Twenty can be self-hosted for data ownership, compliance, and customization.
+- [S12] **Twenty Docker Compose docs** - https://docs.twenty.com/developers/self-host/capabilities/docker-compose
+  - Note: Twenty provides Docker Compose installation guidance for self-hosted deployment.
+- [S13] **Twenty API docs** - https://docs.twenty.com/developers/extend/api
+  - Note: Twenty generates REST and GraphQL APIs from each workspace schema and exposes metadata APIs.
+- [S14] **Twenty GitHub releases** - https://github.com/twentyhq/twenty/releases
+  - Note: Twenty v2.14.0 appeared as the latest GitHub release in mid-June 2026 search results.
+- [S15] **Better Auth docs** - https://www.better-auth.com/docs
+  - Note: Better Auth is a framework-agnostic TypeScript auth and authorization framework with plugins.
+- [S16] **Better Auth integrations** - https://www.better-auth.com/docs/integrations
+  - Note: Better Auth is framework-agnostic and documents server-framework integrations; V1 uses the Fastify integration in [S33].
+- [S17] **TypeScript 6.0 announcement** - https://devblogs.microsoft.com/typescript/announcing-typescript-6-0/
+  - Note: TypeScript 6.0 was announced as a transition release toward the native TypeScript 7.0 compiler.
+- [S18] **Tailwind CSS v4.1 announcement** - https://tailwindcss.com/blog/tailwindcss-v4-1
+  - Note: Tailwind CSS v4.1 added new utilities and DX improvements.
+- [S19] **BAAI bge-m3 model card** - https://huggingface.co/BAAI/bge-m3
+  - Note: BGE-M3 supports dense, multi-vector, sparse retrieval, 100+ languages, and up to 8192 tokens.
+- [S20] **vLLM OpenAI-compatible server docs** - https://docs.vllm.ai/en/v0.19.0/serving/openai_compatible_server/
+  - Note: vLLM provides an OpenAI-compatible HTTP server for serving local models.
+- [S21] **Ollama homepage/docs** - https://ollama.com/
+  - Note: Ollama positions itself as an easy way to build with open models while keeping data safe.
+- [S22] **Instagram Content Publishing docs** - https://developers.facebook.com/docs/instagram-platform/content-publishing/
+  - Note: Meta documents publishing single images, videos, reels, and carousel posts through Instagram Platform APIs.
+- [S23] **Gmail API scopes** - https://developers.google.com/workspace/gmail/api/auth/scopes
+  - Note: Google Workspace Gmail docs define OAuth scopes and least-access scope selection.
+- [S24] **Google Calendar API OAuth scopes** - https://developers.google.com/workspace/calendar/api/auth
+  - Note: Google Calendar docs describe configuring OAuth consent screen and selecting scopes.
+- [S25] **MeitY DPDP Rules 2025 page** - https://www.meity.gov.in/documents/act-and-policies/digital-personal-data-protection-rules-2025-gDOxUjMtQWa?pageTitle=Digital-Personal-Data-Protection-Rules-2025
+  - Note: MeitY lists the Digital Personal Data Protection Rules, 2025 and related enforcement materials.
+- [S26] **Telangana RERA official portal** - https://rera.telangana.gov.in/
+  - Note: TG-RERA official portal exists to promote transparency through project registration and information dissemination.
+- [S27] **TNRERA official portal** - https://rera.tn.gov.in/
+  - Note: TNRERA states project and agent registration are mandatory and no sale can be made without registration where applicable.
+- [S28] **OWASP GenAI Security Project / LLM Top 10** - https://genai.owasp.org/llm-top-10/
+  - Note: OWASP lists 2025 Top 10 risks and mitigations for LLM and GenAI applications, including prompt injection.
+- [S29] **OWASP LLM01 Prompt Injection** - https://genai.owasp.org/llmrisk/llm01-prompt-injection/
+  - Note: OWASP describes prompt injection as manipulation of model responses through inputs that alter behavior.
+- [S30] **Vite official guide** - https://vite.dev/guide/
+  - Note: Vite provides a lean frontend build tool and production build command for optimized static assets.
+- [S31] **Fastify official site** - https://fastify.dev/
+  - Note: Fastify describes itself as a fast, low-overhead Node.js framework with plugin architecture and strong developer experience.
+- [S32] **Fastify validation and serialization docs** - https://github.com/fastify/fastify/blob/HEAD/docs/Reference/Validation-and-Serialization.md
+  - Note: Fastify uses schema-based validation and compiled serialization for route inputs/outputs.
+- [S33] **Better Auth Fastify integration** - https://better-auth.com/docs/integrations/fastify
+  - Note: Better Auth documents Fastify handler and CORS integration for TypeScript projects.
+- [S34] **June 2026 backend comparison research** - web searches comparing Fastify, Hono, Express, NestJS, and Elysia for TypeScript APIs.
+  - Note: Research favored Fastify for a long-running Node.js 24 API on a single VPS; Hono is stronger for cross-runtime/edge portability, Elysia is Bun-first, Express is mature but less optimized, and NestJS is heavier than needed for V1.
+- [S35] **Drizzle ORM docs** - https://orm.drizzle.team/docs/overview and https://orm.drizzle.team/docs/migrations
+  - Note: Drizzle provides a lightweight TypeScript ORM, relational query API, SQL-like queries, and `drizzle-kit` migration workflows that can generate SQL migrations from TypeScript schema changes.
+- [S36] **MapLibre GL JS docs** - https://maplibre.org/maplibre-gl-js/docs/
+  - Note: MapLibre GL JS is a TypeScript/WebGL renderer for interactive vector-tile maps controlled by style documents.
+- [S37] **OpenStreetMap tile usage policy** - https://operations.osmfoundation.org/policies/tiles/
+  - Note: OSM data is free, but public OSM tile servers are best-effort, capacity-limited, and not a production SLA-backed dependency.
+- [S38] **Mapbox pricing** - https://www.mapbox.com/pricing
+  - Note: Mapbox provides hosted maps/geocoding options with free tiers and paid per-load pricing; use only when client accepts provider cost/dependency.
+- [S39] **Fastify multipart docs** - https://github.com/fastify/fastify-multipart
+  - Note: Fastify multipart supports streaming file uploads and request/file-size limits.
+- [S40] **Sharp docs** - https://sharp.pixelplumbing.com/
+  - Note: Sharp provides high-performance Node.js image resizing/conversion to JPEG/PNG/WebP/GIF/AVIF and supports streams/filesystem workflows.
+- [S41] **pompelmi / ClamAV Node wrapper** - https://github.com/pompelmi/pompelmi
+  - Note: Provides Node.js ClamAV scanning patterns, including Fastify upload examples and clean/malicious verdict handling.
+- [S42] **Better Auth Fastify and PostgreSQL docs** - https://better-auth.com/docs/integrations/fastify and https://better-auth.com/docs/adapters/postgresql
+  - Note: Better Auth documents Fastify handlers/trusted origins/CORS and PostgreSQL usage via `pg.Pool` plus schema generation/migration CLI.
+- [S43] **Google OAuth production, Gmail, and Calendar scope docs** - https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance, https://developers.google.com/workspace/gmail/api/auth/scopes, https://developers.google.com/workspace/calendar/api/auth
+  - Note: Google requires least-privilege scopes, OAuth consent configuration, verified production setup, and verification for sensitive/restricted scopes.
+- [S44] **Instagram content publishing docs** - https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/content-publishing
+  - Note: Instagram publishing requires professional/business setup, login permissions, media container creation, publish endpoints, and platform rate-limit handling.
+- [S45] **PIB DPDP Rules 2025 explainer PDF** - https://static.pib.gov.in/WriteReadData/specificdocs/documents/2025/nov/doc20251117695301.pdf
+  - Note: DPDP Rules emphasize clear consent notices, purpose-specific personal-data collection, individual rights, and phased compliance.
+- [S46] **WhatsApp Business Platform docs** - https://developers.facebook.com/documentation/business-messaging/whatsapp/about-the-platform
+  - Note: WhatsApp Business Platform Cloud API supports programmatic messaging and rich/interactive messages, relies on webhooks for inbound messages/status updates, uses WABA/phone number assets, and requires approved templates for business-initiated messages outside the customer service window.
+- [S47] **Instagram Messaging docs** - https://developers.facebook.com/documentation/business-messaging/instagram-messaging
+  - Note: Instagram Messaging provides official business messaging APIs and webhooks for Instagram conversations; use official Meta permissions and webhook flows rather than unofficial automation.

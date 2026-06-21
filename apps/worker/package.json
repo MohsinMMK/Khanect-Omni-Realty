@@ -1,0 +1,29 @@
+{
+  "name": "worker",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "prebuild": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build && pnpm --filter @workspace/db build",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/index.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "pretest": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build && pnpm --filter @workspace/db build",
+    "test": "vitest run",
+    "pretypecheck": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build && pnpm --filter @workspace/db build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/config": "workspace:*",
+    "@workspace/core": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "bullmq": "^5.66.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "tsx": "^4.21.0",
+    "typescript": "~6",
+    "vitest": "^4.0.16"
+  }
+}

@@ -1,0 +1,72 @@
+name: khanect-omni-realty-phase0
+
+x-app-environment: &app-environment
+  NODE_ENV: development
+  APP_VERSION: phase0
+  APP_BASE_URL: http://localhost:3000
+  API_BASE_URL: http://localhost:3000/api/v1
+  API_INTERNAL_BASE_URL: http://app:3000
+  VITE_API_BASE_URL: /api/v1
+  CRM_BASE_URL: http://localhost:3001
+  DATABASE_URL: postgresql://realestate:change_me@postgres:5432/realestate_app
+  REDIS_URL: redis://redis:6379
+  BETTER_AUTH_URL: http://localhost:3000
+  BETTER_AUTH_SECRET: phase0_dev_only_better_auth_secret_min_32_chars
+  ENCRYPTION_KEY: phase0_dev_only_encryption_key_min_32_chars
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: "3310"
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: realestate_app
+      POSTGRES_USER: realestate
+      POSTGRES_PASSWORD: change_me
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  clamav:
+    image: clamav/clamav:stable
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:phase0
+    command: ["node", "apps/api/dist/index.js"]
+    environment: *app-environment
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+      - clamav
+    volumes:
+      - uploads-data:/app/uploads
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:phase0
+    command: ["node", "apps/worker/dist/index.js"]
+    environment: *app-environment
+    depends_on:
+      - postgres
+      - redis
+      - clamav
+    volumes:
+      - uploads-data:/app/uploads
+
+volumes:
+  postgres-data:
+  uploads-data:

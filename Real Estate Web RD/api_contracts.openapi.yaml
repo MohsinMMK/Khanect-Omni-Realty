@@ -1,0 +1,806 @@
+openapi: 3.1.0
+info:
+  title: Real-Estate AI Web App API
+  version: 0.1.0
+servers:
+  - url: https://clientdomain.com/api/v1
+security: []
+paths:
+  /health:
+    get:
+      summary: API health check
+      responses:
+        '200':
+          description: Service health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/clamav:
+    get:
+      summary: ClamAV dependency health check
+      responses:
+        '200':
+          description: ClamAV reachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DependencyHealthResponse'
+        '503':
+          description: ClamAV unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DependencyHealthResponse'
+  /admin/me:
+    get:
+      summary: Get Phase 1A dev admin stub identity
+      responses:
+        '200':
+          description: Dev admin stub
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminMeResponse' }
+  /admin/content:
+    get:
+      summary: List admin content items
+      responses:
+        '200':
+          description: Content items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ContentItem' }
+    post:
+      summary: Create draft admin content item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentCreateRequest' }
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item]
+                properties:
+                  item: { $ref: '#/components/schemas/ContentItem' }
+  /admin/content/{id}:
+    get:
+      summary: Get admin content item
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Content item }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Patch admin content item
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContentPatchRequest' }
+      responses:
+        '200':
+          description: Content item patched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [item]
+                properties:
+                  item: { $ref: '#/components/schemas/ContentItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/content/{id}/publish:
+    post:
+      summary: Publish content and index Phase 1A RAG chunks using stub/hash-v1
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Published and indexed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublishResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/rag/documents:
+    get:
+      summary: List RAG documents
+      responses:
+        '200':
+          description: RAG documents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RagDocument' }
+  /admin/rag/documents/{id}/chunks:
+    get:
+      summary: List RAG chunks for document
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: RAG chunks without raw vectors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RagChunk' }
+  /admin/rag/reindex:
+    post:
+      summary: Reindex published content only
+      responses:
+        '200':
+          description: Reindex summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [indexed, chunks]
+                properties:
+                  indexed: { type: integer }
+                  chunks: { type: integer }
+  /admin/rag/search-test:
+    post:
+      summary: Test pgvector RAG retrieval with stub/hash-v1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                topK: { type: integer }
+      responses:
+        '200':
+          description: Retrieval results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, sources, retrieval]
+                properties:
+                  query: { type: string }
+                  sources:
+                    type: array
+                    items: { $ref: '#/components/schemas/RagSource' }
+                  retrieval: { $ref: '#/components/schemas/RetrievalTrace' }
+  /admin/chat-lab/sessions:
+    get:
+      summary: List chat lab sessions
+      responses:
+        '200':
+          description: Chat lab sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatSession' }
+    post:
+      summary: Create chat lab session
+      responses:
+        '201':
+          description: Chat lab session created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session]
+                properties:
+                  session: { $ref: '#/components/schemas/ChatSession' }
+  /admin/chat-lab/sessions/{id}/messages:
+    get:
+      summary: List chat lab messages
+      parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Chat lab transcript
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatMessage' }
+  /admin/chat-lab/test-message:
+    post:
+      summary: Send admin lab test message and get grounded answer or fallback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                sessionId: { type: string, format: uuid }
+                message: { type: string, minLength: 1 }
+                topK: { type: integer }
+      responses:
+        '200':
+          description: Grounded answer or fallback
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatAnswerResponse' }
+  /properties:
+    get:
+      summary: List published properties
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: locality
+          schema: { type: string }
+        - in: query
+          name: configuration
+          schema: { type: string }
+      responses:
+        '200':
+          description: Published property list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PropertySummary' }
+  /properties/{slug}:
+    get:
+      summary: Get published property by slug
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Property detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PropertyDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /projects/{slug}:
+    get:
+      summary: Get published project by slug
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Project detail }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /leads:
+    post:
+      summary: Capture lead and enqueue Twenty CRM sync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeadCreateRequest' }
+      responses:
+        '201':
+          description: Lead accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AcceptedResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /chat/sessions:
+    post:
+      summary: Create chatbot session
+      responses:
+        '201':
+          description: Chat session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatSessionResponse' }
+  /chat/sessions/{id}/messages:
+    post:
+      summary: Send chat message and receive grounded answer
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1, maxLength: 2000 }
+                pageUrl: { type: string }
+                propertyId: { type: string, format: uuid }
+                projectId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Grounded chat answer or fallback
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatAnswerResponse' }
+  /webhooks/meta/whatsapp:
+    get:
+      summary: Verify WhatsApp webhook subscription
+      parameters:
+        - in: query
+          name: hub.mode
+          schema: { type: string }
+        - in: query
+          name: hub.challenge
+          schema: { type: string }
+        - in: query
+          name: hub.verify_token
+          schema: { type: string }
+      responses:
+        '200': { description: Webhook challenge response }
+    post:
+      summary: Receive WhatsApp Business Platform webhook events
+      responses:
+        '202': { description: Event accepted for async processing }
+  /webhooks/meta/instagram:
+    get:
+      summary: Verify Instagram Messaging webhook subscription
+      parameters:
+        - in: query
+          name: hub.mode
+          schema: { type: string }
+        - in: query
+          name: hub.challenge
+          schema: { type: string }
+        - in: query
+          name: hub.verify_token
+          schema: { type: string }
+      responses:
+        '200': { description: Webhook challenge response }
+    post:
+      summary: Receive Instagram Messaging webhook events
+      responses:
+        '202': { description: Event accepted for async processing }
+  /bookings/availability:
+    get:
+      summary: Check available viewing slots
+      parameters:
+        - in: query
+          name: propertyId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: projectId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Available slots
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [slots]
+                properties:
+                  slots:
+                    type: array
+                    items: { $ref: '#/components/schemas/AvailabilitySlot' }
+  /bookings:
+    post:
+      summary: Request viewing booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookingCreateRequest' }
+      responses:
+        '201': { description: Booking created }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { description: Slot no longer available }
+  /admin/crm/leads/recent:
+    get:
+      summary: List recent CRM-linked leads for admin CRM-lite panels
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Recent leads with CRM sync metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/CRMLeadSummary' }
+  /admin/crm/leads/{leadId}:
+    get:
+      summary: Get lead CRM sync summary and deep links
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: leadId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Lead CRM summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CRMLeadSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/media:
+    post:
+      summary: Upload private media for CMS review
+      description: Streams multipart upload to temporary storage, validates limits/types, scans with ClamAV, then stores clean media metadata. Requires admin auth.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, purpose]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                purpose:
+                  type: string
+                  enum: [property_image, floor_plan_pdf, brochure_pdf, social_media]
+                entityType:
+                  type: string
+                  enum: [project, property_listing, social_post]
+                entityId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Clean media accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaAsset' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { description: File too large }
+        '415': { description: Unsupported media type }
+        '422': { description: Malware scan failed or file rejected }
+  /admin/media/{id}/publish:
+    post:
+      summary: Mark clean media asset as publishable after CMS approval
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Media publishable }
+        '409': { description: Media is not clean or not approved }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: Rate limited
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    AdminMeResponse:
+      type: object
+      required: [user, tenant, warning]
+      properties:
+        user:
+          type: object
+          required: [id, email, roles, authMode, productionAuth]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string }
+            roles:
+              type: array
+              items: { type: string }
+            authMode: { type: string, enum: [dev-stub] }
+            productionAuth: { type: boolean, const: false }
+        tenant:
+          type: object
+          required: [id]
+          properties:
+            id: { type: string, format: uuid }
+        warning: { type: string }
+    ContentCreateRequest:
+      type: object
+      required: [title, body]
+      properties:
+        contentType: { type: string, enum: [project, property, faq, area, policy, general] }
+        title: { type: string }
+        slug: { type: string }
+        body: { type: string }
+        metadata: { type: object }
+    ContentPatchRequest:
+      type: object
+      properties:
+        contentType: { type: string, enum: [project, property, faq, area, policy, general] }
+        title: { type: string }
+        slug: { type: string }
+        body: { type: string }
+        metadata: { type: object }
+    ContentItem:
+      type: object
+      required: [id, contentType, title, slug, body, status]
+      properties:
+        id: { type: string, format: uuid }
+        contentType: { type: string }
+        title: { type: string }
+        slug: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [draft, published] }
+        publishedVersionId: { type: [string, 'null'], format: uuid }
+    PublishResponse:
+      type: object
+      required: [item, versionId, documentId, chunkCount, embeddingModel]
+      properties:
+        item: { $ref: '#/components/schemas/ContentItem' }
+        versionId: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
+        chunkCount: { type: integer }
+        embeddingModel: { type: string, enum: [stub/hash-v1] }
+    RagDocument:
+      type: object
+      required: [id, sourceType, sourceId, sourceVersionId, title, status, chunkCount]
+      properties:
+        id: { type: string, format: uuid }
+        sourceType: { type: string }
+        sourceId: { type: string, format: uuid }
+        sourceVersionId: { type: string, format: uuid }
+        title: { type: string }
+        status: { type: string }
+        chunkCount: { type: integer }
+        indexedAt: { type: [string, 'null'], format: date-time }
+    RagChunk:
+      type: object
+      required: [id, documentId, content, embeddingModel, embeddingDimension]
+      properties:
+        id: { type: string, format: uuid }
+        documentId: { type: string, format: uuid }
+        content: { type: string }
+        embeddingModel: { type: string, enum: [stub/hash-v1] }
+        embeddingDimension: { type: integer, enum: [1024] }
+    RagSource:
+      type: object
+      required: [chunkId, title, excerpt, score]
+      properties:
+        chunkId: { type: string, format: uuid }
+        title: { type: string }
+        excerpt: { type: string }
+        score: { type: number }
+    RetrievalTrace:
+      type: object
+      required: [topK, embeddingModel]
+      properties:
+        topK: { type: integer }
+        embeddingModel: { type: string, enum: [stub/hash-v1] }
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
+        requestId: { type: string }
+    DependencyHealthResponse:
+      type: object
+      required: [status, dependency, host, port]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        dependency: { type: string, enum: [clamav] }
+        host: { type: string }
+        port: { type: integer }
+    AcceptedResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [accepted] }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string }
+        requestId: { type: string }
+    Coordinates:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number }
+        lng: { type: number }
+        provider: { type: string }
+        providerPlaceId: { type: string }
+    PropertySummary:
+      type: object
+      required: [id, slug, title]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        city: { type: string }
+        locality: { type: string }
+        configuration: { type: string }
+        priceDisplayMode: { type: string }
+        coordinates: { $ref: '#/components/schemas/Coordinates' }
+    PropertyDetail:
+      allOf:
+        - $ref: '#/components/schemas/PropertySummary'
+        - type: object
+          properties:
+            description: { type: string }
+            reraNumber: { type: string }
+            reraUrl: { type: string }
+            media:
+              type: array
+              items: { $ref: '#/components/schemas/MediaAsset' }
+    LeadCreateRequest:
+      type: object
+      required: [source, consent]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        propertyId: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        message: { type: string }
+        budgetRange: { type: string }
+        source: { type: string, enum: [form, website_chatbot, whatsapp, instagram_dm, scheduler, social] }
+        leadScore: { type: integer, minimum: 0, maximum: 100 }
+        leadScoreBand: { type: string, enum: [cold, warm, hot] }
+        handoffReason: { type: string }
+        consent: { $ref: '#/components/schemas/Consent' }
+        utm:
+          type: object
+          additionalProperties: { type: string }
+    Consent:
+      type: object
+      required: [accepted, textVersion, purpose]
+      properties:
+        accepted: { type: boolean, const: true }
+        textVersion: { type: string }
+        purpose: { type: string }
+    ChatSessionResponse:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+    ChatSession:
+      type: object
+      required: [id, channel, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        channel: { type: string, enum: [website] }
+        status: { type: string }
+        lastMessageAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    ChatMessage:
+      type: object
+      required: [id, conversationId, direction, messageType, content, sourceIds, actionTrace, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        conversationId: { type: string, format: uuid }
+        direction: { type: string, enum: [inbound, outbound, system] }
+        messageType: { type: string }
+        content: { type: string }
+        sourceIds:
+          type: array
+          items: { type: string }
+        actionTrace: { type: object }
+        createdAt: { type: string, format: date-time }
+    ChatAnswerResponse:
+      type: object
+      required: [answer, sources, fallback, retrieval, leadScore, handoff]
+      properties:
+        sessionId: { type: string, format: uuid }
+        answer: { type: string }
+        fallback: { type: boolean }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/RagSource' }
+        retrieval: { $ref: '#/components/schemas/RetrievalTrace' }
+        leadScore:
+          type: object
+          required: [score, band, reasonCodes]
+          properties:
+            score: { type: integer, enum: [0] }
+            band: { type: string, enum: [cold] }
+            reasonCodes:
+              type: array
+              items: { type: string }
+        handoff: { type: 'null' }
+    AvailabilitySlot:
+      type: object
+      required: [startsAt, endsAt, available]
+      properties:
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        available: { type: boolean }
+    BookingCreateRequest:
+      type: object
+      required: [startsAt, consent]
+      properties:
+        startsAt: { type: string, format: date-time }
+        propertyId: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        consent: { $ref: '#/components/schemas/Consent' }
+    CRMLeadSummary:
+      type: object
+      required: [id, source, crmSyncStatus]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string, format: email }
+        source: { type: string }
+        crmSyncStatus: { type: string, enum: [pending, synced, failed] }
+        crmPersonId: { type: string }
+        crmOpportunityId: { type: string }
+        crmPersonUrl: { type: string }
+        crmOpportunityUrl: { type: string }
+        latestCrmSummary: { type: string }
+        leadScore: { type: integer, minimum: 0, maximum: 100 }
+        leadScoreBand: { type: string, enum: [cold, warm, hot] }
+        handoffReason: { type: string }
+        sourceChannel: { type: string, enum: [website, whatsapp, instagram_dm, form, scheduler, social] }
+    MediaAsset:
+      type: object
+      required: [id, status, scanStatus, originalFilename, detectedMime]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [uploaded, processing, clean, rejected, quarantined, publishable] }
+        scanStatus: { type: string, enum: [pending, clean, infected, error] }
+        originalFilename: { type: string }
+        detectedMime: { type: string }
+        sizeBytes: { type: integer }
+        sha256: { type: string }
+        altText: { type: string }
