@@ -1,4 +1,4 @@
-import { createUuidV7 } from "@workspace/core"
+import { createUuidV7, EMBEDDING_DIMENSION, STUB_EMBEDDING_MODEL, embedTextStubHashV1 } from "@workspace/core"
 import { and, desc, eq, sql } from "drizzle-orm"
 import type { Pool } from "pg"
 
@@ -15,8 +15,8 @@ import {
   tenant,
 } from "./schema.js"
 
-export const STUB_EMBEDDING_MODEL = "stub/hash-v1"
-export const STUB_EMBEDDING_DIMENSION = 1024
+export { STUB_EMBEDDING_MODEL, embedTextStubHashV1 } from "@workspace/core"
+export const STUB_EMBEDDING_DIMENSION = EMBEDDING_DIMENSION
 export const STUB_MIN_RELEVANCE_SCORE = 0.05
 export const DEFAULT_TENANT_DOMAIN = "dev.khanect.local"
 export const DEFAULT_ADMIN_EMAIL = "admin.stub@khanect.local"
@@ -149,30 +149,6 @@ export interface Phase1aStore {
   listChatMessages(sessionId: string): Promise<ChatMessageDto[]>
   sendChatMessage(input: { sessionId?: string; message: string; topK?: number }): Promise<ChatAnswer & { sessionId: string }>
   close?(): Promise<void>
-}
-
-export function embedTextStubHashV1(input: string): number[] {
-  const buckets = new Float64Array(STUB_EMBEDDING_DIMENSION)
-  const normalized = input.normalize("NFKC").toLowerCase().trim()
-  const tokens = normalized.match(/[\p{L}\p{N}]+/gu) ?? [normalized]
-
-  for (const token of tokens) {
-    let hash = 2166136261
-    for (let index = 0; index < token.length; index += 1) {
-      hash ^= token.charCodeAt(index)
-      hash = Math.imul(hash, 16777619) >>> 0
-    }
-
-    const bucket = hash % STUB_EMBEDDING_DIMENSION
-    const sign = (hash & 1) === 0 ? 1 : -1
-    buckets[bucket] += sign * Math.max(1, token.length / 8)
-  }
-
-  let magnitude = 0
-  for (const value of buckets) magnitude += value * value
-  magnitude = Math.sqrt(magnitude) || 1
-
-  return Array.from(buckets, (value) => Number((value / magnitude).toFixed(8)))
 }
 
 export function serializePgVector(vector: readonly number[]): string {

@@ -117,6 +117,28 @@ Three connector channels: `website` (embeddable widget), `whatsapp` (Meta WhatsA
 - Stores expose typed interfaces (`Phase1aStore`, `ProductionChatbotStore`) with both Drizzle and in-memory implementations; tests use the in-memory stores.
 - Config is env-driven and zod-validated via `loadConfig()`; never read `process.env` directly in app code, use the parsed `AppConfig`.
 
+## Official Docs First (Per Segment)
+
+Before implementing any non-trivial segment (embedding model, pgvector retrieval, BullMQ jobs, Drizzle vector types, Fastify plugins, shadcn components, Agno APIs, etc.), **web-search and read the latest official documentation for that segment**. Do not rely on training-data memory alone.
+
+Required workflow for each segment:
+
+1. **Search** — use web search for the specific library/version and task (e.g. "pgvector HNSW vector_cosine_ops", "BullMQ Queue.add retries").
+2. **Read** — open the official source (project README, vendor docs, or pinned version docs). Prefer links from the repo's `Real Estate Web RD/` lock files when they exist.
+3. **Record** — in commit/PR notes or the active plan step, cite the URL and any version/API delta that affects the implementation.
+4. **Re-check on upgrade** — when bumping a dependency (pgvector, BullMQ, Drizzle, BGE-M3 embedder image tag), repeat the search before merging.
+
+Canonical references for the current RAG epic (Plan 005):
+
+| Segment | Official docs |
+|---|---|
+| BGE-M3 embeddings (1024-dim) | [Hugging Face — BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3), [FlagEmbedding BGE_M3](https://github.com/FlagOpen/FlagEmbedding/tree/master/FlagEmbedding/BGE_M3) |
+| pgvector cosine + HNSW | [pgvector README](https://github.com/pgvector/pgvector) (Querying, HNSW, Filtering) |
+| Drizzle vector search | [Drizzle vector similarity guide](https://orm.drizzle.team/docs/guides/vector-similarity-search) |
+| BullMQ enqueue + worker | [Queues](https://docs.bullmq.io/guide/queues.md), [Workers](https://docs.bullmq.io/guide/workers.md), [Retrying jobs](https://docs.bullmq.io/guide/retrying-failing-jobs.md) |
+
+If web search or doc fetch fails, retry with an alternate query or fetch the `.md` URL directly (e.g. `docs.bullmq.io/guide/queues.md`) before improvising API usage.
+
 ## Verification Expectations
 
 - For API, worker, core, config, or database changes, run the most specific package test/typecheck first, then broaden if the change affects shared behavior.
@@ -127,7 +149,7 @@ Three connector channels: `website` (embeddable widget), `whatsapp` (Meta WhatsA
 
 ## Implementation Plans
 
-`plans/` holds self-contained plans for other agents to execute. All four plans (001-004) are DONE as of 2026-06-23. Read a plan before extending the codebase; honor STOP conditions when adding new plans.
+`plans/` holds self-contained plans for other agents to execute. Plans 001-004 (web UI) are DONE as of 2026-06-23. Plan 005 (real RAG platform pipeline) is the active backend epic. Read a plan before extending the codebase; honor STOP conditions when adding new plans.
 
 ## Git And Workspace Safety
 

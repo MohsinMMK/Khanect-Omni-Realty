@@ -14,12 +14,19 @@ import { existsSync } from "node:fs"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 
+import type { AdminAuthOptions } from "./admin-auth.js"
+import { createBetterAuthRuntime } from "./auth/create-auth.js"
 import { adminRoutes } from "./routes/admin.js"
+import { betterAuthRoutes } from "./routes/better-auth.js"
 import { dependencyHealthRoutes, type ClamavHealthCheck } from "./routes/dependency-health.js"
 import { healthRoutes } from "./routes/health.js"
+import { readinessRoutes, type ReadinessRouteOptions } from "./routes/readiness.js"
+import { embeddingAdminRoutes } from "./routes/embedding-admin.js"
+import { metaWebhookRoutes } from "./routes/meta-webhooks.js"
 import { platformRoutes } from "./routes/platform.js"
 import { createConfiguredAnswerProvider } from "./llm.js"
 import { createAgnoAnswerProvider } from "./agno.js"
+import { createRagIndexEnqueuer, type RagIndexEnqueuer } from "./rag-index-enqueuer.js"
 
 export interface StaticAssetsOptions {
   enabled?: boolean
@@ -35,7 +42,10 @@ export interface BuildApiOptions {
   clamavHealthCheck?: ClamavHealthCheck
   phase1aStore?: Phase1aStore
   productionChatbotStore?: ProductionChatbotStore
+  ragIndexEnqueuer?: RagIndexEnqueuer
   websiteInstallFetcher?: typeof fetch
+  metaFetchImpl?: typeof fetch
+  readinessProbe?: ReadinessRouteOptions["probe"]
   widgetRateLimit?: {
     maxMessages: number
     windowMs: number
@@ -71,30 +81,61 @@ export async function buildApi(options: BuildApiOptions = {}) {
   const phase1aStore = options.phase1aStore ?? createDefaultPhase1aStore()
   const productionChatbotStore = options.productionChatbotStore ?? createDefaultProductionChatbotStore(config, {
     answerProvider: createAgnoAnswerProvider(config) ?? createConfiguredAnswerProvider(config),
+    appConfig: config,
+    encryptionKey: config.auth.encryptionKey,
   })
+  const ragIndexEnqueuer = options.ragIndexEnqueuer ?? createRagIndexEnqueuer(config, productionChatbotStore)
+  let betterAuthRuntime: ReturnType<typeof createBetterAuthRuntime> | null = null
+  if (config.auth.enabled) {
+    betterAuthRuntime = createBetterAuthRuntime(config)
+  }
+  const adminAuth: AdminAuthOptions = {
+    allowDevAdminStub: config.nodeEnv !== "production",
+    adminApiKey: config.auth.adminApiKey,
+    betterAuthEnabled: config.auth.enabled,
+    auth: betterAuthRuntime?.auth ?? null,
+  }
+  const widgetRateLimit = {
+    maxMessages: config.platform.widgetRateLimitMax,
+    windowMs: config.platform.widgetRateLimitWindowMs,
+  }
   app.addHook("onClose", async () => {
     await phase1aStore.close?.()
     await productionChatbotStore.close?.()
+    await betterAuthRuntime?.close()
   })
 
   await app.register(healthRoutes, { prefix: "/api/v1" })
+  await app.register(readinessRoutes({ config, probe: options.readinessProbe }), { prefix: "/api/v1" })
   await app.register(dependencyHealthRoutes({ config, clamavHealthCheck: options.clamavHealthCheck }), {
     prefix: "/api/v1",
   })
+  if (betterAuthRuntime) {
+    await app.register(betterAuthRoutes({ auth: betterAuthRuntime.auth }))
+  }
   await app.register(adminRoutes({
     store: phase1aStore,
-    allowDevAdminStub: config.nodeEnv !== "production",
-    adminApiKey: config.auth.adminApiKey,
+    adminAuth,
   }), {
     prefix: "/api/v1",
   })
+  await app.register(metaWebhookRoutes({
+    config,
+    store: productionChatbotStore,
+    fetchImpl: options.metaFetchImpl,
+  }), { prefix: "/api/v1" })
+  await app.register(embeddingAdminRoutes({
+    config,
+    adminAuth,
+  }), { prefix: "/api/v1" })
   await app.register(platformRoutes({
     store: productionChatbotStore,
-    allowDevAdminStub: config.nodeEnv !== "production",
-    adminApiKey: config.auth.adminApiKey,
+    appConfig: config,
+    adminAuth,
     agnoServiceToken: config.agno.serviceToken,
+    ragIndexEnqueuer,
     websiteInstallFetcher: options.websiteInstallFetcher,
-    widgetRateLimit: options.widgetRateLimit,
+    widgetRateLimit: options.widgetRateLimit ?? widgetRateLimit,
   }), {
     prefix: "/api/v1",
   })

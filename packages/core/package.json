@@ -15,6 +15,7 @@
     "uuid": "^14.0.1"
   },
   "devDependencies": {
+    "@types/node": "^24",
     "typescript": "~6",
     "vitest": "^4.1.9"
   },

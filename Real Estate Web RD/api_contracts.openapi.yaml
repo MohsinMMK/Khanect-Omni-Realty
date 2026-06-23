@@ -16,6 +16,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      summary: API readiness probe (postgres, redis, optional embedder)
+      responses:
+        '200':
+          description: Dependencies ready
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessResponse' }
+        '503':
+          description: One or more dependencies unavailable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadinessResponse' }
   /health/clamav:
     get:
       summary: ClamAV dependency health check
@@ -282,6 +296,90 @@ paths:
                 required: [project]
                 properties:
                   project: { $ref: '#/components/schemas/PlatformProject' }
+  /admin/bootstrap:
+    post:
+      summary: Bootstrap the first Better Auth admin user (one-time, API key only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 12 }
+                name: { type: string }
+      responses:
+        '200':
+          description: Bootstrap user created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminBootstrapResponse' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /admin/projects/{projectId}/ai-config:
+    get:
+      summary: Get per-project AI key configuration
+      parameters: [{ in: path, name: projectId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Project AI config
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectAiConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Update per-project AI key configuration
+      parameters: [{ in: path, name: projectId, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectAiConfigPatchRequest' }
+      responses:
+        '200':
+          description: Updated config
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [config]
+                properties:
+                  config: { $ref: '#/components/schemas/ProjectAiConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/projects/{projectId}/ai-config/llm/test:
+    post:
+      summary: Smoke-test the project LLM key
+      parameters: [{ in: path, name: projectId, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sample: { type: string }
+      responses:
+        '200':
+          description: LLM smoke test result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectLlmSmokeTestResult' }
+  /admin/projects/{projectId}/ai-config/embedding/test:
+    post:
+      summary: Smoke-test the project embedding key
+      parameters: [{ in: path, name: projectId, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sample: { type: string }
+      responses:
+        '200':
+          description: Embedding smoke test result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectEmbeddingSmokeTestResult' }
   /admin/projects/{projectId}/chatbots:
     get:
       summary: List chatbots for a project (production platform)
@@ -403,7 +501,29 @@ paths:
           description: Published
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PublishResponse' }
+              schema: { $ref: '#/components/schemas/PlatformPublishResponse' }
+  /admin/chatbots/{chatbotId}/knowledge:
+    get:
+      summary: List chatbot knowledge sources (indexed and in-flight sync)
+      parameters: [{ in: path, name: chatbotId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Knowledge sources
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformKnowledgeListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/chatbots/{chatbotId}/conversations:
+    get:
+      summary: List chatbot conversation threads (production platform)
+      parameters: [{ in: path, name: chatbotId, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Conversation summaries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlatformConversationListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /admin/chatbots/{chatbotId}/test-message:
     post:
       summary: Test chatbot message (production platform)
@@ -434,6 +554,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PlatformConnectorsResponse' }
+  /admin/chatbots/{chatbotId}/connectors/website/origin-check:
+    post:
+      summary: Check whether a website origin would pass widget CORS gating
+      parameters: [{ in: path, name: chatbotId, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [origin]
+              properties:
+                origin: { type: string }
+      responses:
+        '200':
+          description: Origin check result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WidgetOriginCheckResponse' }
   /widget/{publicKey}/config:
     get:
       summary: Public widget configuration
@@ -584,7 +723,11 @@ paths:
     post:
       summary: Receive WhatsApp Business Platform webhook events
       responses:
-        '202': { description: Event accepted for async processing }
+        '202':
+          description: Event accepted and processed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetaWebhookProcessResponse' }
   /webhooks/meta/instagram:
     get:
       summary: Verify Instagram Messaging webhook subscription
@@ -603,7 +746,11 @@ paths:
     post:
       summary: Receive Instagram Messaging webhook events
       responses:
-        '202': { description: Event accepted for async processing }
+        '202':
+          description: Event accepted and processed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetaWebhookProcessResponse' }
   /bookings/availability:
     get:
       summary: Check available viewing slots
@@ -747,6 +894,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: Service unavailable
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
   schemas:
     ChatbotCapabilities:
       type: object
@@ -758,12 +910,115 @@ components:
         propertyRecommendations: { type: boolean }
     PlatformProject:
       type: object
-      required: [id, name, status]
+      required: [id, name, status, aiKeys]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         domain: { type: [string, 'null'] }
         status: { type: string, enum: [active, archived] }
+        aiKeys: { $ref: '#/components/schemas/ProjectAiKeySummary' }
+    ProjectAiKeySummary:
+      type: object
+      required: [llmSource, embeddingSource]
+      properties:
+        llmSource: { type: string, enum: [platform, project] }
+        embeddingSource: { type: string, enum: [platform, project] }
+    ProjectAiConfig:
+      type: object
+      required: [projectId, llm, embedding, updatedAt]
+      properties:
+        projectId: { type: string, format: uuid }
+        updatedAt: { type: [string, 'null'], format: date-time }
+        llm: { $ref: '#/components/schemas/ProjectLlmConfig' }
+        embedding: { $ref: '#/components/schemas/ProjectEmbeddingConfig' }
+    ProjectLlmConfig:
+      type: object
+      required: [source, apiKeyConfigured, effectiveBaseUrl, effectiveModel]
+      properties:
+        source: { type: string, enum: [platform, project] }
+        apiKeyConfigured: { type: boolean }
+        apiKeyMasked: { type: [string, 'null'] }
+        baseUrl: { type: [string, 'null'] }
+        model: { type: [string, 'null'] }
+        effectiveBaseUrl: { type: string }
+        effectiveModel: { type: string }
+    ProjectEmbeddingConfig:
+      type: object
+      required: [source, provider, configuredProvider, apiKeyConfigured, dimension, status]
+      properties:
+        source: { type: string, enum: [platform, project] }
+        provider: { type: string, enum: [stub, local, openai] }
+        configuredProvider: { type: [string, 'null'], enum: [stub, local, openai, null] }
+        apiKeyConfigured: { type: boolean }
+        apiKeyMasked: { type: [string, 'null'] }
+        embedderUrl: { type: [string, 'null'] }
+        model: { type: [string, 'null'] }
+        dimension: { type: integer }
+        status: { type: string, enum: [ok, misconfigured] }
+        detail: { type: string }
+        probe: { type: object }
+    ProjectAiConfigPatchRequest:
+      type: object
+      properties:
+        llm:
+          type: object
+          properties:
+            source: { type: string, enum: [platform, project] }
+            apiKey: { type: [string, 'null'] }
+            baseUrl: { type: [string, 'null'] }
+            model: { type: [string, 'null'] }
+        embedding:
+          type: object
+          properties:
+            source: { type: string, enum: [platform, project] }
+            provider: { type: string, enum: [stub, local, openai] }
+            apiKey: { type: [string, 'null'] }
+            embedderUrl: { type: [string, 'null'] }
+            model: { type: [string, 'null'] }
+    ProjectLlmSmokeTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        model: { type: string }
+        answer: { type: string }
+        detail: { type: string }
+    ProjectEmbeddingSmokeTestResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        provider: { type: string }
+        dimension: { type: integer }
+        detail: { type: string }
+    AdminBootstrapResponse:
+      type: object
+      required: [bootstrapComplete, user]
+      properties:
+        bootstrapComplete: { type: boolean }
+        user:
+          type: object
+          required: [id, email]
+          properties:
+            id: { type: string }
+            email: { type: string, format: email }
+    MetaWebhookProcessResponse:
+      type: object
+      required: [accepted, channel, processed, replied, skipped, failures]
+      properties:
+        accepted: { type: boolean }
+        channel: { type: string, enum: [whatsapp, instagram_dm] }
+        processed: { type: integer }
+        replied: { type: integer }
+        skipped: { type: integer }
+        failures:
+          type: array
+          items:
+            type: object
+            required: [messageId, detail]
+            properties:
+              messageId: { type: string }
+              detail: { type: string }
     PlatformChatbot:
       type: object
       required: [id, projectId, name, purpose, capabilities, status]
@@ -783,9 +1038,60 @@ components:
         - type: object
           properties:
             chatbotId: { type: string, format: uuid }
+    PlatformKnowledgeSource:
+      type: object
+      required: [id, chatbotId, contentItemId, sourceVersionId, title, sourceType, chunkCount, status, indexedAt]
+      properties:
+        id: { type: string, format: uuid }
+        chatbotId: { type: string, format: uuid }
+        contentItemId: { type: string, format: uuid }
+        sourceVersionId: { type: string, format: uuid }
+        title: { type: string }
+        sourceType: { type: string, enum: [project, property, faq, area, policy, general] }
+        chunkCount: { type: integer }
+        status: { type: string, enum: [pending, syncing, indexed, failed] }
+        indexedAt: { type: string, format: date-time }
+    PlatformPublishResponse:
+      type: object
+      required: [item, source, chunkCount, documentId, indexing]
+      properties:
+        item: { $ref: '#/components/schemas/PlatformContentItem' }
+        source: { $ref: '#/components/schemas/PlatformKnowledgeSource' }
+        chunkCount: { type: integer }
+        documentId: { type: string, format: uuid }
+        indexing: { type: boolean, description: True while async rag.index worker has not finished }
+    PlatformKnowledgeListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PlatformKnowledgeSource' }
+    PlatformConversationSummary:
+      type: object
+      required: [id, chatbotId, channel, status, messageCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        chatbotId: { type: string, format: uuid }
+        channel: { type: string, enum: [website, whatsapp, instagram_dm] }
+        externalThreadId: { type: string, nullable: true }
+        status: { type: string }
+        messageCount: { type: integer, minimum: 0 }
+        lastUserMessage: { type: string, nullable: true }
+        lastAssistantMessage: { type: string, nullable: true }
+        lastMessageAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PlatformConversationListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PlatformConversationSummary' }
     PlatformConnectorsResponse:
       type: object
-      required: [connectors, deployment]
+      required: [connectors, deployment, widgetPolicy]
       properties:
         connectors:
           type: array
@@ -804,6 +1110,48 @@ components:
               type: array
               items: { type: string }
             installSnippet: { type: string }
+            installStatus: { type: string, enum: [not_installed, installed, unverified] }
+        widgetPolicy: { $ref: '#/components/schemas/WidgetSecurityPolicy' }
+    WidgetSecurityPolicy:
+      type: object
+      required: [originProtection, allowedDomains, installStatus, rateLimit]
+      properties:
+        originProtection: { type: string, enum: [enforced, blocked_until_configured] }
+        allowedDomains:
+          type: array
+          items: { type: string }
+        installStatus: { type: string, enum: [not_installed, installed, unverified] }
+        rateLimit:
+          type: object
+          required: [maxMessages, windowMs, summary]
+          properties:
+            maxMessages: { type: integer }
+            windowMs: { type: integer }
+            summary: { type: string }
+    WidgetOriginCheckResponse:
+      type: object
+      required: [allowed, hostname, origin]
+      properties:
+        allowed: { type: boolean }
+        hostname: { type: string }
+        origin: { type: string }
+        matchedDomain: { type: [string, 'null'] }
+        reason: { type: string }
+        code: { type: string }
+    ReadinessResponse:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [dependency, status]
+            properties:
+              dependency: { type: string, enum: [postgres, redis, embedder] }
+              status: { type: string, enum: [ok, unavailable] }
+              detail: { type: string }
     WidgetConfigResponse:
       type: object
       required: [widget]
@@ -872,7 +1220,7 @@ components:
         versionId: { type: string, format: uuid }
         documentId: { type: string, format: uuid }
         chunkCount: { type: integer }
-        embeddingModel: { type: string, enum: [stub/hash-v1] }
+        embeddingModel: { type: string, enum: [stub/hash-v1, BAAI/bge-m3] }
     RagDocument:
       type: object
       required: [id, sourceType, sourceId, sourceVersionId, title, status, chunkCount]
@@ -892,7 +1240,7 @@ components:
         id: { type: string, format: uuid }
         documentId: { type: string, format: uuid }
         content: { type: string }
-        embeddingModel: { type: string, enum: [stub/hash-v1] }
+        embeddingModel: { type: string, enum: [stub/hash-v1, BAAI/bge-m3] }
         embeddingDimension: { type: integer, enum: [1024] }
     RagSource:
       type: object
@@ -907,7 +1255,7 @@ components:
       required: [topK, embeddingModel]
       properties:
         topK: { type: integer }
-        embeddingModel: { type: string, enum: [stub/hash-v1] }
+        embeddingModel: { type: string, enum: [stub/hash-v1, BAAI/bge-m3] }
     HealthResponse:
       type: object
       required: [status]

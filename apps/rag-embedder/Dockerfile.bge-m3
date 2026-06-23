@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+# CPU BGE-M3 embedder image. Model weights download on first request into HF_HOME (mount a volume in compose).
+
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/cache/huggingface
+WORKDIR /app
+
+COPY apps/rag-embedder/pyproject.toml apps/rag-embedder/README.md ./
+COPY apps/rag-embedder/src ./src
+
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+  && pip install --no-cache-dir ".[bge]"
+
+EXPOSE 8080
+CMD ["uvicorn", "rag_embedder_service.main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8080"]

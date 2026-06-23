@@ -43,6 +43,8 @@ const envSchema = z.object({
 
   BETTER_AUTH_URL: requiredUrl("http://localhost:3000"),
   BETTER_AUTH_SECRET: z.string().default(phase0AuthSecret),
+  BETTER_AUTH_ENABLED: booleanFromString,
+  ADMIN_BOOTSTRAP_EMAIL: optionalString.pipe(z.string().email().optional()),
   ENCRYPTION_KEY: z.string().default(phase0EncryptionKey),
   ADMIN_API_KEY: optionalString,
 
@@ -70,7 +72,13 @@ const envSchema = z.object({
   INSTAGRAM_PUBLISHING_ENABLED: booleanFromString,
 
   EMBEDDER_VERSION: z.string().default("0.1.0"),
+  EMBEDDING_PROVIDER: z.enum(["stub", "local", "openai"]).optional(),
+  EMBEDDER_URL: optionalString.pipe(z.string().url().optional()),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-m3"),
+  EMBEDDING_DIMENSION: z.coerce.number().int().positive().default(1024),
+  EMBEDDING_ENABLED: booleanFromString,
+  OPENAI_API_KEY: optionalString,
+  OPENAI_BASE_URL: optionalString.pipe(z.string().url().optional()),
   LLM_PROVIDER: z.string().default("ollama"),
   LLM_BASE_URL: requiredUrl("http://localhost:11434"),
   LLM_API_KEY: optionalString,
@@ -82,6 +90,17 @@ const envSchema = z.object({
   AGNO_MODEL: z.string().default("gpt-5-mini"),
   AGNO_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
   PLATFORM_STORE: z.enum(["postgres", "memory"]).default("postgres"),
+  WIDGET_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  WIDGET_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(3001),
+  RAG_INDEX_SYNC: z.preprocess((value) => {
+    if (value === undefined || value === "") return undefined
+    const normalized = String(value).trim().toLowerCase()
+    if (["true", "1"].includes(normalized)) return true
+    if (["false", "0"].includes(normalized)) return false
+    return value
+  }, z.boolean().optional()),
 
   UPLOAD_DIR: z.string().default("/app/uploads"),
   UPLOAD_TMP_DIR: z.string().default("/app/uploads/tmp"),
@@ -126,6 +145,8 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
     auth: {
       url: parsed.BETTER_AUTH_URL,
       secret: parsed.BETTER_AUTH_SECRET,
+      enabled: parsed.BETTER_AUTH_ENABLED,
+      bootstrapEmail: parsed.ADMIN_BOOTSTRAP_EMAIL,
       encryptionKey: parsed.ENCRYPTION_KEY,
       adminApiKey: parsed.ADMIN_API_KEY,
     },
@@ -161,7 +182,14 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
     },
     ai: {
       embedderVersion: parsed.EMBEDDER_VERSION,
+      embeddingProvider: resolveEmbeddingProvider(parsed),
+      embedderUrl: parsed.EMBEDDER_URL,
       embeddingModel: parsed.EMBEDDING_MODEL,
+      embeddingDimension: parsed.EMBEDDING_DIMENSION,
+      openAiApiKey: resolveOpenAiApiKey(parsed),
+      openAiBaseUrl: parsed.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+      openAiEmbeddingModel: resolveOpenAiEmbeddingModel(parsed),
+      embeddingEnabled: resolveEmbeddingEnabled(parsed),
       llmProvider: parsed.LLM_PROVIDER,
       llmBaseUrl: parsed.LLM_BASE_URL,
       llmApiKey: parsed.LLM_API_KEY,
@@ -177,6 +205,13 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
     },
     platform: {
       store: parsed.PLATFORM_STORE,
+      ragIndexSync: parsed.RAG_INDEX_SYNC ?? parsed.NODE_ENV !== "production",
+      widgetRateLimitMax: parsed.WIDGET_RATE_LIMIT_MAX,
+      widgetRateLimitWindowMs: parsed.WIDGET_RATE_LIMIT_WINDOW_MS,
+    },
+    runtime: {
+      shutdownTimeoutMs: parsed.SHUTDOWN_TIMEOUT_MS,
+      workerHealthPort: parsed.WORKER_HEALTH_PORT,
     },
     map: {
       renderer: parsed.MAP_RENDERER,
@@ -204,6 +239,30 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
   } as const
 }
 
+function resolveEmbeddingProvider(parsed: z.output<typeof envSchema>) {
+  if (parsed.EMBEDDING_PROVIDER) return parsed.EMBEDDING_PROVIDER
+  if (parsed.EMBEDDER_URL) return "local" as const
+  return "stub" as const
+}
+
+function resolveOpenAiApiKey(parsed: z.output<typeof envSchema>) {
+  if (resolveEmbeddingProvider(parsed) !== "openai") return undefined
+  return parsed.OPENAI_API_KEY ?? parsed.LLM_API_KEY
+}
+
+function resolveOpenAiEmbeddingModel(parsed: z.output<typeof envSchema>) {
+  if (parsed.EMBEDDING_MODEL === "BAAI/bge-m3" || parsed.EMBEDDING_MODEL === "stub/hash-v1") {
+    return "text-embedding-3-small"
+  }
+  return parsed.EMBEDDING_MODEL
+}
+
+function resolveEmbeddingEnabled(parsed: z.output<typeof envSchema>) {
+  const provider = resolveEmbeddingProvider(parsed)
+  if (provider === "stub") return parsed.EMBEDDING_ENABLED
+  return true
+}
+
 function enforceProductionConfig(parsed: z.output<typeof envSchema>) {
   if (parsed.NODE_ENV !== "production") return
 
@@ -228,6 +287,14 @@ function enforceProductionConfig(parsed: z.output<typeof envSchema>) {
 
   if (parsed.AGNO_ENABLED) {
     requireSecret(parsed.AGNO_SERVICE_TOKEN, "AGNO_SERVICE_TOKEN", "phase0_dev_only_agno_service_token", issues)
+  }
+
+  if (resolveEmbeddingProvider(parsed) === "openai") {
+    requirePresent(resolveOpenAiApiKey(parsed), "OPENAI_API_KEY", issues)
+  }
+
+  if (resolveEmbeddingProvider(parsed) === "local") {
+    requirePresent(parsed.EMBEDDER_URL, "EMBEDDER_URL", issues)
   }
 
   if (parsed.PLATFORM_STORE === "memory") {

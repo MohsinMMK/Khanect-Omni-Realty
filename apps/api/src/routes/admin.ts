@@ -1,44 +1,40 @@
 import type { Phase1aStore } from "@workspace/db"
 import type { FastifyInstance } from "fastify"
 
+import { type AdminAuthOptions, resolveAdminAuth, sendAdminAuthRequired } from "../admin-auth.js"
+
 interface AdminRoutesOptions {
   store: Phase1aStore
-  allowDevAdminStub: boolean
-  adminApiKey?: string
+  adminAuth: AdminAuthOptions
 }
 
 export function adminRoutes(options: AdminRoutesOptions) {
   return async function register(app: FastifyInstance) {
     app.addHook("preHandler", async (request, reply) => {
-      if (!options.allowDevAdminStub) {
-        if (isAdminAuthorized(request.headers, options.adminApiKey)) {
-          request.headers["x-khanect-admin-auth"] = "api-key"
-          return
-        }
-        return reply.status(401).send({
-          error: {
-            code: "ADMIN_AUTH_REQUIRED",
-            message: "Admin API key is required.",
-          },
-        })
+      const authResult = await resolveAdminAuth(request.headers, options.adminAuth)
+      if (!authResult.authorized) {
+        return sendAdminAuthRequired(reply, options.adminAuth.betterAuthEnabled)
       }
-
-      request.headers["x-khanect-admin-auth"] = "dev-stub-only"
     })
 
-    app.get("/admin/me", async () => {
+    app.get("/admin/me", async (request) => {
       const admin = await options.store.getAdminContext()
-      const productionAuth = !options.allowDevAdminStub
+      const authResult = await resolveAdminAuth(request.headers, options.adminAuth)
+      const productionAuth = !options.adminAuth.allowDevAdminStub
       return {
         user: {
           id: admin.userId,
-          email: productionAuth ? "admin@khanect.local" : admin.email,
+          email: productionAuth && authResult.authorized && authResult.mode === "api-key"
+            ? "admin@khanect.local"
+            : admin.email,
           roles: admin.roles,
-          authMode: productionAuth ? "api-key" : admin.authMode,
+          authMode: authResult.authorized ? authResult.mode : admin.authMode,
           productionAuth,
         },
         tenant: { id: admin.tenantId },
-        warning: productionAuth ? undefined : "Dev admin stub only. Not production authentication.",
+        warning: options.adminAuth.allowDevAdminStub
+          ? "Dev admin stub only. Not production authentication."
+          : undefined,
       }
     })
 
@@ -127,14 +123,6 @@ export function adminRoutes(options: AdminRoutesOptions) {
       })
     })
   }
-}
-
-function isAdminAuthorized(headers: Record<string, string | string[] | undefined>, adminApiKey: string | undefined) {
-  if (!adminApiKey) return false
-  const direct = headers["x-khanect-admin-api-key"]
-  if (direct === adminApiKey || (Array.isArray(direct) && direct.includes(adminApiKey))) return true
-  const authorization = headers.authorization
-  return authorization === `Bearer ${adminApiKey}`
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {

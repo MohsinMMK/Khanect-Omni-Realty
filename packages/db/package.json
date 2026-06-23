@@ -10,6 +10,8 @@
     "db:migrate": "node scripts/migrate.mjs",
     "smoke:phase1a": "pnpm build && node scripts/smoke-phase1a.mjs",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "pretest": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build",
+    "test": "vitest run",
     "lint": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.mjs\" \"drizzle.config.ts\"",
     "pretypecheck": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build",
@@ -25,7 +27,8 @@
     "@types/node": "^24",
     "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.10",
-    "typescript": "~6"
+    "typescript": "~6",
+    "vitest": "^4.1.9"
   },
   "exports": {
     ".": {

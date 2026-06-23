@@ -1,15 +1,23 @@
 import type { AppConfig } from "@workspace/config"
-import { createDbClient, createDrizzlePhase1aStore, createPgPool, type Phase1aStore } from "@workspace/db"
-import { Worker, type Job, type WorkerOptions } from "bullmq"
+import {
+  createProjectAiRuntimeResolver,
+  createRedisConnectionOptions,
+  isPlatformRagIndexJob,
+  ragIndexQueueName,
+  type RagIndexJobData,
+} from "@workspace/core"
+import {
+  createDbClient,
+  createDrizzlePhase1aStore,
+  createDrizzleProductionChatbotStore,
+  createPgPool,
+  type Phase1aStore,
+  type ProductionChatbotStore,
+} from "@workspace/db"
+import { Worker, type Job } from "bullmq"
 
 export const phase0QueueName = "phase0.foundation"
-export const ragIndexQueueName = "rag.index"
-
-export interface RagIndexJobData {
-  tenantId?: string
-  contentItemId?: string
-  contentVersionId?: string
-}
+export { ragIndexQueueName }
 
 export interface WorkerLogger {
   info(message: string, metadata?: Record<string, unknown>): void
@@ -21,32 +29,51 @@ export interface WorkerRuntime {
   close(): Promise<void>
 }
 
-export function createRedisConnectionOptions(redisUrl: string): WorkerOptions["connection"] {
-  const url = new URL(redisUrl)
+export function createRagIndexProcessor(
+  phase1aStore: Phase1aStore,
+  platformStore: ProductionChatbotStore,
+  config: AppConfig,
+  logger: WorkerLogger,
+) {
+  const projectAiResolver = createProjectAiRuntimeResolver(config.ai, (projectId) => platformStore.getProjectAiSecrets(projectId))
 
-  return {
-    host: url.hostname,
-    port: Number(url.port || 6379),
-    username: url.username || undefined,
-    password: url.password || undefined,
-    db: url.pathname.length > 1 ? Number(url.pathname.slice(1)) : 0,
-    tls: url.protocol === "rediss:" ? {} : undefined,
-  }
-}
-
-export function createRagIndexProcessor(store: Phase1aStore, logger: WorkerLogger) {
   return async function processRagIndex(job: Job<RagIndexJobData>) {
     logger.info("rag index job received", { jobId: job.id, queueName: ragIndexQueueName })
-    const result = await store.reindexContent(job.data.contentItemId)
-    logger.info("rag index job completed", { jobId: job.id, ...result })
-    return { status: "indexed", ...result }
+
+    if (isPlatformRagIndexJob(job.data)) {
+      const chatbot = await platformStore.getChatbot(job.data.chatbotId)
+      const embed = chatbot
+        ? await projectAiResolver.resolveEmbeddingProvider(chatbot.projectId)
+        : await projectAiResolver.resolveEmbeddingProvider("missing-project")
+      const result = await platformStore.indexPlatformContent({
+        chatbotId: job.data.chatbotId,
+        contentItemId: job.data.contentItemId,
+        sourceVersionId: job.data.contentVersionId,
+        documentId: job.data.documentId,
+        embed,
+      })
+      logger.info("platform rag index job completed", { jobId: job.id, ...result })
+      return { status: "indexed", scope: "platform", ...result }
+    }
+
+    const result = await phase1aStore.reindexContent(job.data.contentItemId)
+    logger.info("phase1a rag index job completed", { jobId: job.id, ...result })
+    return { status: "indexed", scope: "phase1a", ...result }
   }
 }
 
 export async function startWorkerRuntime(config: AppConfig, logger: WorkerLogger): Promise<WorkerRuntime> {
-  const connection = createRedisConnectionOptions(config.redis.url)
+  const connection = {
+    ...createRedisConnectionOptions(config.redis.url),
+    maxRetriesPerRequest: null,
+  }
   const pool = createPgPool({ databaseUrl: config.db.databaseUrl })
-  const store = createDrizzlePhase1aStore(createDbClient(pool), pool)
+  const db = createDbClient(pool)
+  const phase1aStore = createDrizzlePhase1aStore(db, pool)
+  const platformStore = createDrizzleProductionChatbotStore(db, pool, {
+    appConfig: config,
+    encryptionKey: config.auth.encryptionKey,
+  })
 
   const phase0Worker = new Worker(
     phase0QueueName,
@@ -57,10 +84,11 @@ export async function startWorkerRuntime(config: AppConfig, logger: WorkerLogger
     { connection, autorun: false },
   )
 
-  const ragWorker = new Worker(ragIndexQueueName, createRagIndexProcessor(store, logger), {
-    connection,
-    autorun: false,
-  })
+  const ragWorker = new Worker(
+    ragIndexQueueName,
+    createRagIndexProcessor(phase1aStore, platformStore, config, logger),
+    { connection, autorun: false },
+  )
 
   for (const worker of [phase0Worker, ragWorker]) {
     worker.on("error", (error) => {
@@ -86,3 +114,5 @@ export async function startWorkerRuntime(config: AppConfig, logger: WorkerLogger
     },
   }
 }
+
+export { createRedisConnectionOptions }

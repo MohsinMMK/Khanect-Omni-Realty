@@ -20,7 +20,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@workspace/ui/components/context-menu"
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@workspace/ui/components/drawer"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@workspace/ui/components/pagination"
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
+import { ScrollArea } from "@workspace/ui/components/scroll-area"
+import { Spinner } from "@workspace/ui/components/spinner"
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@workspace/ui/components/empty"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
@@ -117,6 +135,8 @@ export function ContentView({
   const [detailForm, setDetailForm] = useState({ name: "", purpose: "", capabilities: [] as string[] })
   const [detailSaving, setDetailSaving] = useState(false)
   const [confirmingChatbotAction, setConfirmingChatbotAction] = useState<{ type: "archive" | "unarchive" | "delete"; chatbot: Chatbot } | null>(null)
+  const [tablePage, setTablePage] = useState(1)
+  const tablePageSize = 5
   const [form, setForm] = useState({ title: "", body: "", contentType: "general" })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
@@ -135,6 +155,12 @@ export function ContentView({
       (statusFilter === "draft" && chatbotItems.some((item) => item.status !== "published"))
     return matchesQuery && matchesStatus
   })
+  const totalTablePages = Math.max(1, Math.ceil(visibleChatbots.length / tablePageSize))
+  const pagedChatbots = visibleChatbots.slice((tablePage - 1) * tablePageSize, tablePage * tablePageSize)
+
+  useEffect(() => {
+    setTablePage(1)
+  }, [query, statusFilter, chatbotId])
 
   async function refreshContent() {
     const response = await api<{ items: ContentItem[] }>(`/admin/chatbots/${chatbotId}/content`)
@@ -346,17 +372,49 @@ export function ContentView({
     }
   }
 
+  async function loadKnowledge(chatbot: string) {
+    const response = await api<{ items: KnowledgeSource[] }>(`/admin/chatbots/${chatbot}/knowledge`)
+    if (chatbot === chatbotId) setSources(response.items)
+    return response.items
+  }
+
+  async function waitForIndexedKnowledge(contentItemId: string, targetChatbotId: string) {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const items = await loadKnowledge(targetChatbotId)
+      const source = items.find((entry) => entry.contentItemId === contentItemId)
+      if (source?.status === "indexed") return source
+      if (source?.status === "failed") throw new Error("Knowledge indexing failed")
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    return null
+  }
+
   async function publish(id: string, afterPublish?: "details", targetChatbotId = chatbotId) {
     setSaving(true)
     setError("")
     try {
-      const response = await api<{ chunkCount: number }>(`/admin/chatbots/${targetChatbotId}/content/${id}/publish`, { method: "POST" })
-      toast.success(`Published: ${response.chunkCount} chunk(s) indexed.`)
+      const response = await api<{ chunkCount: number; indexing?: boolean; source?: KnowledgeSource }>(
+        `/admin/chatbots/${targetChatbotId}/content/${id}/publish`,
+        { method: "POST" },
+      )
       if (targetChatbotId === chatbotId) {
-        await refreshAll()
+        await refreshContent()
+        if (response.indexing) {
+          await loadKnowledge(targetChatbotId)
+          toast.success("Published — indexing knowledge…")
+          const indexed = await waitForIndexedKnowledge(id, targetChatbotId)
+          if (indexed) toast.success(`Indexed: ${indexed.chunkCount} chunk(s).`)
+          else toast.warning("Published, but indexing is still in progress.")
+        } else {
+          await refreshKnowledge()
+          toast.success(`Published: ${response.chunkCount} chunk(s) indexed.`)
+        }
       } else {
         const contentResponse = await api<{ items: ContentItem[] }>(`/admin/chatbots/${targetChatbotId}/content`)
         setContentByChatbotId((current) => ({ ...current, [targetChatbotId]: contentResponse.items }))
+        if (response.indexing) toast.success("Published — indexing knowledge in the background.")
+        else toast.success(`Published: ${response.chunkCount} chunk(s) indexed.`)
       }
       if (afterPublish === "details") setDetailItemId(id)
     } catch (apiError) {
@@ -537,7 +595,7 @@ export function ContentView({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {visibleChatbots.map((chatbot) => {
+                        {pagedChatbots.map((chatbot) => {
                           const chatbotItems = chatbot.id === chatbotId ? selectedItems : contentByChatbotId[chatbot.id] ?? []
                           const chatbotPublishedItems = chatbotItems.filter((item) => item.status === "published")
                           const chatbotDraftItems = chatbotItems.filter((item) => item.status !== "published")
@@ -545,23 +603,27 @@ export function ContentView({
                           const isArchived = chatbot.status === "archived"
                           const isDrawerOpen = detailOpen && chatbot.id === chatbotId
                           return (
-                            <TableRow
-                              key={chatbot.id}
-                              className={cn(
-                                "cursor-pointer",
-                                isDrawerOpen && "bg-muted/50",
-                                !isDrawerOpen && "hover:bg-muted/40",
-                              )}
-                              data-state={isDrawerOpen ? "selected" : undefined}
-                              tabIndex={0}
-                              onClick={() => openChatbotDetails(chatbot)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault()
-                                  openChatbotDetails(chatbot)
+                            <ContextMenu key={chatbot.id}>
+                              <ContextMenuTrigger
+                                render={
+                                  <TableRow
+                                    className={cn(
+                                      "cursor-pointer",
+                                      isDrawerOpen && "bg-muted/50",
+                                      !isDrawerOpen && "hover:bg-muted/40",
+                                    )}
+                                    data-state={isDrawerOpen ? "selected" : undefined}
+                                    tabIndex={0}
+                                    onClick={() => openChatbotDetails(chatbot)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault()
+                                        openChatbotDetails(chatbot)
+                                      }
+                                    }}
+                                  />
                                 }
-                              }}
-                            >
+                              >
                               <TableCell>
                                 <div className="font-medium">{chatbot.name}</div>
                                 <div className="line-clamp-1 text-sm text-muted-foreground">{chatbot.purpose}</div>
@@ -638,11 +700,75 @@ export function ContentView({
                                   </DropdownMenu>
                                 </div>
                               </TableCell>
-                            </TableRow>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onClick={() => openChatbotDetails(chatbot)}>
+                                  Open details
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={() => onChatbotSelected(chatbot.id)}>
+                                  Select chatbot
+                                </ContextMenuItem>
+                                {chatbotDraftItems.length > 0 && (
+                                  <ContextMenuItem
+                                    disabled={saving}
+                                    onClick={() => publish(chatbotDraftItems[0].id, undefined, chatbot.id)}
+                                  >
+                                    Publish first draft
+                                  </ContextMenuItem>
+                                )}
+                                <ContextMenuSeparator />
+                                <ContextMenuItem
+                                  onClick={() => setConfirmingChatbotAction({ type: isArchived ? "unarchive" : "archive", chatbot })}
+                                >
+                                  {isArchived ? "Unarchive chatbot" : "Archive chatbot"}
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
                           )
                         })}
                       </TableBody>
                     </Table>
+                  )}
+                  {visibleChatbots.length > tablePageSize && (
+                    <Pagination className="justify-end">
+                      <PaginationContent>
+                        <PaginationItem>
+                          <PaginationPrevious
+                            href="#"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              setTablePage((current) => Math.max(1, current - 1))
+                            }}
+                          />
+                        </PaginationItem>
+                        {Array.from({ length: totalTablePages }, (_, index) => {
+                          const pageNumber = index + 1
+                          return (
+                            <PaginationItem key={pageNumber}>
+                              <PaginationLink
+                                href="#"
+                                isActive={pageNumber === tablePage}
+                                onClick={(event) => {
+                                  event.preventDefault()
+                                  setTablePage(pageNumber)
+                                }}
+                              >
+                                {pageNumber}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )
+                        })}
+                        <PaginationItem>
+                          <PaginationNext
+                            href="#"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              setTablePage((current) => Math.min(totalTablePages, current + 1))
+                            }}
+                          />
+                        </PaginationItem>
+                      </PaginationContent>
+                    </Pagination>
                   )}
                 </>
               )}
@@ -699,8 +825,11 @@ export function ContentView({
             <DrawerDescription className="sr-only">Edit chatbot setup, manage content, and test responses.</DrawerDescription>
           </DrawerHeader>
           {detailChatbot && (
-            <div className="grid min-h-0 flex-1 gap-5 overflow-hidden px-4 pb-4 lg:grid-cols-2">
-              <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 px-4 pb-4">
+            <ResizablePanelGroup className="min-h-[28rem] rounded-2xl border border-border/60" orientation="horizontal">
+              <ResizablePanel defaultSize={58} minSize={35}>
+              <ScrollArea className="h-full pr-2">
+              <div className="flex flex-col gap-4 p-1">
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
                   <div className="font-heading text-base font-medium">Chatbot setup</div>
                   <FieldGroup>
@@ -760,7 +889,11 @@ export function ContentView({
                         <div className="mt-3 flex flex-wrap gap-2">
                           <Badge variant="outline">{contentTypeOptions.find((option) => option.value === item.contentType)?.label ?? item.contentType}</Badge>
                           {sourceHost && <Badge variant="outline">{sourceHost}</Badge>}
-                          {itemSources.length > 0 && <Badge variant="outline">{itemSources.reduce((total, source) => total + source.chunkCount, 0)} chunks</Badge>}
+                          {itemSources.map((source) => (
+                            <Badge key={source.id} variant={source.status === "indexed" ? "outline" : "secondary"}>
+                              {source.status === "indexed" ? `${source.chunkCount} chunks` : source.status}
+                            </Badge>
+                          ))}
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" onClick={() => edit(item)}>Edit</Button>
@@ -794,14 +927,18 @@ export function ContentView({
                   </div>
                 </div>
               </div>
-
-              <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+              </ScrollArea>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={42} minSize={28}>
+              <ScrollArea className="h-full pr-2">
+              <div className="flex flex-col gap-4 p-1">
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
                   <div className="font-heading text-base font-medium">Test chatbot</div>
                   <Textarea className="min-h-24" value={detailTestMessage} onChange={(event) => setDetailTestMessage(event.target.value)} />
                   <Button disabled={!detailTestMessage.trim() || detailTesting} onClick={testFromDetails}>
-                    <SendHorizontal data-icon="inline-start" />
-                    {detailTesting ? "Testing..." : "Ask"}
+                    {detailTesting ? <Spinner data-icon="inline-start" /> : <SendHorizontal data-icon="inline-start" />}
+                    Ask
                   </Button>
                   {detailAnswer && (
                     <div className="rounded-2xl border border-border/60 px-4 py-3">
@@ -810,6 +947,9 @@ export function ContentView({
                   )}
                 </div>
               </div>
+              </ScrollArea>
+              </ResizablePanel>
+            </ResizablePanelGroup>
             </div>
           )}
           {detailChatbot && (
@@ -819,7 +959,8 @@ export function ContentView({
                 disabled={!detailFormReady || !detailFormDirty || detailSaving || detailChatbot.status === "archived"}
                 onClick={() => void saveChatbotDetails()}
               >
-                {detailSaving ? "Saving..." : "Save changes"}
+                {detailSaving && <Spinner data-icon="inline-start" />}
+                Save changes
               </Button>
             </DrawerFooter>
           )}
@@ -832,8 +973,8 @@ export function ContentView({
             <DrawerTitle>{editingId ? "Edit draft" : "New draft"}</DrawerTitle>
             <DrawerDescription>Only verified copy should be published to chatbot knowledge.</DrawerDescription>
           </DrawerHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4">
-            <FieldGroup>
+          <ScrollArea className="min-h-0 flex-1 px-4">
+            <FieldGroup className="pr-3">
               <Field>
                 <FieldLabel>Title</FieldLabel>
                 <Input placeholder="Example: Marina Heights pet policy" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
@@ -854,10 +995,13 @@ export function ContentView({
                 <Textarea className="min-h-60" placeholder="Write the exact answer the chatbot can reuse..." value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} />
               </Field>
             </FieldGroup>
-          </div>
+          </ScrollArea>
           <DrawerFooter>
             <div className="flex flex-wrap gap-2">
-              <Button disabled={!form.title || !form.body || saving} onClick={saveContent}>{editingId ? "Update" : "Save draft"}</Button>
+              <Button disabled={!form.title || !form.body || saving} onClick={saveContent}>
+                {saving && <Spinner data-icon="inline-start" />}
+                {editingId ? "Update" : "Save draft"}
+              </Button>
               <Button variant="outline" onClick={() => setForm(sampleContent)}>Use sample</Button>
               <Button variant="ghost" onClick={closeEditor}>Cancel</Button>
             </div>

@@ -26,6 +26,54 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ DATABASE_URL: "not a url" })).toThrow()
   })
 
+  it("parses embedder configuration", () => {
+    const withUrl = loadConfig({
+      EMBEDDER_URL: "http://embedder:8080",
+      EMBEDDING_MODEL: "BAAI/bge-m3",
+      EMBEDDING_ENABLED: "false",
+    })
+
+    expect(withUrl.ai).toMatchObject({
+      embeddingProvider: "local",
+      embedderUrl: "http://embedder:8080",
+      embeddingModel: "BAAI/bge-m3",
+      embeddingEnabled: true,
+    })
+
+    const withoutUrl = loadConfig({ EMBEDDING_ENABLED: "true" })
+    expect(withoutUrl.ai.embeddingEnabled).toBe(true)
+    expect(withoutUrl.ai.embeddingProvider).toBe("stub")
+    expect(withoutUrl.ai.embedderUrl).toBeUndefined()
+  })
+
+  it("parses openai embedding provider configuration", () => {
+    const config = loadConfig({
+      EMBEDDING_PROVIDER: "openai",
+      OPENAI_API_KEY: "sk-test-key",
+      EMBEDDING_DIMENSION: "1024",
+    })
+
+    expect(config.ai).toMatchObject({
+      embeddingProvider: "openai",
+      openAiApiKey: "sk-test-key",
+      openAiEmbeddingModel: "text-embedding-3-small",
+      embeddingDimension: 1024,
+      embeddingEnabled: true,
+    })
+  })
+
+  it("requires an openai api key for openai embeddings in production", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "production_better_auth_secret_that_is_long_enough",
+        ENCRYPTION_KEY: "production_encryption_key_that_is_long_enough",
+        ADMIN_API_KEY: "production_admin_api_key_that_is_long_enough",
+        EMBEDDING_PROVIDER: "openai",
+      }),
+    ).toThrow(/OPENAI_API_KEY/)
+  })
+
   it("parses Agno runtime configuration", () => {
     const config = loadConfig({
       AGNO_ENABLED: "true",

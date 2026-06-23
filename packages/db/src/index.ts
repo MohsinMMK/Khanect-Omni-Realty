@@ -3,9 +3,11 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool, type PoolConfig } from "pg"
 
 import * as schema from "./schema.js"
+import * as authSchema from "./auth-schema.js"
 
 export * from "./phase1a.js"
 export * from "./platform.js"
+export * as authSchema from "./auth-schema.js"
 export { schema }
 export type AppDb = ReturnType<typeof createDbClient>
 
@@ -34,7 +36,7 @@ export function createPgPoolFromConfig(config: AppConfig, options: Omit<CreatePo
 }
 
 export function createDbClient(pool: Pool) {
-  return drizzle(pool, { schema })
+  return drizzle(pool, { schema: { ...schema, ...authSchema } })
 }
 
 export async function closePgPool(pool: Pool) {

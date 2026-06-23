@@ -1,5 +1,50 @@
 import { v7 as uuidv7, validate as validateUuid, version as uuidVersion } from "uuid"
 
+export {
+  BGE_M3_EMBEDDING_MODEL,
+  EMBEDDING_DIMENSION,
+  OPENAI_EMBEDDING_MODEL,
+  STUB_EMBEDDING_MODEL,
+  createEmbeddingProviderFromAppAiConfig,
+  createEmbeddingProviderFromConfig,
+  createHttpEmbeddingProvider,
+  createOpenAiEmbeddingProvider,
+  createStubEmbeddingProvider,
+  embedTextStubHashV1,
+  probeOpenAiEmbeddings,
+  type AppAiEmbeddingConfig,
+  type EmbeddingProvider,
+  type EmbeddingProviderConfig,
+  type EmbeddingProviderMode,
+  type HttpEmbeddingProviderOptions,
+  type OpenAiEmbeddingProviderOptions,
+} from "./embedding.js"
+export { createRedisConnectionOptions, type RedisConnectionOptions } from "./redis.js"
+export {
+  buildProjectAiConfigDto,
+  createProjectAiRuntimeResolver,
+  createProjectAnswerProvider,
+  resolveProjectEmbeddingProvider,
+  type ProjectAiConfigDto,
+  type ProjectAiConfigUpdateInput,
+  type ProjectAiRuntimeResolver,
+  type ProjectAiPlatformConfig,
+  type ProjectAiSecrets,
+  type ProjectAiSource,
+  type ProjectAnswerProvider,
+  type ProjectEmbeddingConfigDto,
+  type ProjectLlmConfigDto,
+} from "./project-ai.js"
+export { decryptSecret, encryptSecret, maskSecret } from "./secrets.js"
+export {
+  buildPlatformRagIndexJobId,
+  isPlatformRagIndexJob,
+  ragIndexQueueName,
+  type LegacyRagIndexJobPayload,
+  type RagIndexJobData,
+  type RagIndexJobPayload,
+} from "./rag-index.js"
+
 export type UuidV7 = string & { readonly __brand: "uuid-v7" }
 
 export function createUuidV7(): UuidV7 {

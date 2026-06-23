@@ -33,6 +33,32 @@ describe("Production website chatbot platform", () => {
     expect(accepted.json().project).toMatchObject({ name: "Production Realty" })
   })
 
+  it("rejects bootstrap when better auth is disabled", async () => {
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: createInMemoryProductionChatbotStore(),
+      config: loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
+        ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
+        ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        BETTER_AUTH_ENABLED: "false",
+      }),
+    })
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/bootstrap",
+      headers: { "x-khanect-admin-api-key": "real_admin_api_key_value_with_more_than_32_chars" },
+      payload: { password: "bootstrap-password-12" },
+    })
+
+    await app.close()
+    expect(response.statusCode).toBe(503)
+    expect(response.json()).toMatchObject({ error: { code: "BETTER_AUTH_DISABLED" } })
+  })
+
   it("returns a conflict when a project domain is already used", async () => {
     const app = await buildApi({
       logger: false,
@@ -59,6 +85,59 @@ describe("Production website chatbot platform", () => {
         message: "A project already uses this domain.",
       },
     })
+
+    await app.close()
+  })
+
+  it("stores separate llm and embedding keys per project", async () => {
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: createInMemoryProductionChatbotStore({
+        appConfig: loadConfig({
+          EMBEDDING_PROVIDER: "openai",
+          OPENAI_API_KEY: "sk-platform-embed-key",
+          LLM_API_KEY: "sk-platform-llm-key",
+        }),
+      }),
+    })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "AI Keys Realty", domain: "ai-keys.example" },
+    })).json().project
+
+    const initial = await app.inject({ method: "GET", url: `/api/v1/admin/projects/${project.id}/ai-config` })
+    expect(initial.statusCode).toBe(200)
+    expect(initial.json()).toMatchObject({
+      projectId: project.id,
+      llm: { source: "platform", apiKeyConfigured: true },
+      embedding: { source: "platform", apiKeyConfigured: true },
+    })
+
+    const updated = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/projects/${project.id}/ai-config`,
+      payload: {
+        llm: {
+          source: "project",
+          apiKey: "sk-project-llm-key-aaaa",
+          model: "gpt-4.1-mini",
+        },
+        embedding: {
+          source: "project",
+          provider: "openai",
+          apiKey: "sk-project-embed-key-bbbb",
+        },
+      },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json().config).toMatchObject({
+      llm: { source: "project", apiKeyConfigured: true, model: "gpt-4.1-mini" },
+      embedding: { source: "project", configuredProvider: "openai", apiKeyConfigured: true },
+    })
+    expect(updated.json().config.llm.apiKeyMasked).not.toBe(updated.json().config.embedding.apiKeyMasked)
 
     await app.close()
   })
@@ -357,6 +436,23 @@ describe("Production website chatbot platform", () => {
     expect(blockedWidgetMessageResponse.json()).toMatchObject({
       error: { code: "ORIGIN_NOT_ALLOWED" },
     })
+    expect(connectorsResponse.json().widgetPolicy).toMatchObject({
+      originProtection: "enforced",
+      rateLimit: expect.objectContaining({ maxMessages: expect.any(Number), summary: expect.any(String) }),
+    })
+
+    const allowedOriginCheck = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/origin-check`,
+      payload: { origin: "https://khanect-demo.example" },
+    })
+    const blockedOriginCheck = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/origin-check`,
+      payload: { origin: "https://wrong-site.example" },
+    })
+    expect(allowedOriginCheck.json()).toMatchObject({ allowed: true, hostname: "khanect-demo.example" })
+    expect(blockedOriginCheck.json()).toMatchObject({ allowed: false, code: "ORIGIN_NOT_ALLOWED" })
 
     await app.close()
   })

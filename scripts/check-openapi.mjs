@@ -10,7 +10,12 @@ if (document?.openapi !== "3.1.0") {
 
 const requiredPhase1aPaths = [
   ["/health", "get"],
+  ["/health/ready", "get"],
   ["/health/clamav", "get"],
+  ["/webhooks/meta/whatsapp", "get"],
+  ["/webhooks/meta/whatsapp", "post"],
+  ["/webhooks/meta/instagram", "get"],
+  ["/webhooks/meta/instagram", "post"],
   ["/admin/me", "get"],
   ["/admin/content", "get"],
   ["/admin/content", "post"],
@@ -27,8 +32,13 @@ const requiredPhase1aPaths = [
 ]
 
 const requiredPlatformPaths = [
+  ["/admin/bootstrap", "post"],
   ["/admin/projects", "get"],
   ["/admin/projects", "post"],
+  ["/admin/projects/{projectId}/ai-config", "get"],
+  ["/admin/projects/{projectId}/ai-config", "patch"],
+  ["/admin/projects/{projectId}/ai-config/llm/test", "post"],
+  ["/admin/projects/{projectId}/ai-config/embedding/test", "post"],
   ["/admin/projects/{projectId}/chatbots", "get"],
   ["/admin/projects/{projectId}/chatbots", "post"],
   ["/admin/chatbots/{chatbotId}", "get"],
@@ -36,8 +46,10 @@ const requiredPlatformPaths = [
   ["/admin/chatbots/{chatbotId}/content", "post"],
   ["/admin/chatbots/{chatbotId}/content/{contentId}", "patch"],
   ["/admin/chatbots/{chatbotId}/content/{contentId}/publish", "post"],
+  ["/admin/chatbots/{chatbotId}/knowledge", "get"],
   ["/admin/chatbots/{chatbotId}/test-message", "post"],
   ["/admin/chatbots/{chatbotId}/connectors", "get"],
+  ["/admin/chatbots/{chatbotId}/connectors/website/origin-check", "post"],
   ["/widget/{publicKey}/config", "get"],
   ["/widget/{publicKey}/message", "post"],
 ]
@@ -64,9 +76,21 @@ const requiredSchemas = [
   "ChatAnswerResponse",
   "ChatbotCapabilities",
   "PlatformProject",
+  "ProjectAiKeySummary",
+  "ProjectAiConfig",
+  "ProjectLlmSmokeTestResult",
+  "ProjectEmbeddingSmokeTestResult",
+  "AdminBootstrapResponse",
+  "MetaWebhookProcessResponse",
   "PlatformChatbot",
   "PlatformContentItem",
+  "PlatformKnowledgeSource",
+  "PlatformPublishResponse",
+  "PlatformKnowledgeListResponse",
   "PlatformConnectorsResponse",
+  "WidgetSecurityPolicy",
+  "WidgetOriginCheckResponse",
+  "ReadinessResponse",
   "WidgetConfigResponse",
 ]
 

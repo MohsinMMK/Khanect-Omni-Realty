@@ -1,12 +1,24 @@
+import type { AppConfig } from "@workspace/config"
+import type { EmbeddingProviderMode } from "@workspace/core"
 import type { ProductionChatbotStore } from "@workspace/db"
 import type { ConnectorChannel, ConnectorStatus } from "@workspace/db"
 import type { FastifyPluginAsync } from "fastify"
 
+import {
+  type AdminAuthOptions,
+  isAdminApiKeyAuthorized,
+  resolveAdminAuth,
+  sendAdminAuthRequired,
+} from "../admin-auth.js"
+import { probeProjectEmbedding, runProjectEmbeddingSmokeTest, runProjectLlmSmokeTest } from "../project-ai-admin.js"
+import type { RagIndexEnqueuer } from "../rag-index-enqueuer.js"
+
 interface PlatformRoutesOptions {
   store: ProductionChatbotStore
-  allowDevAdminStub: boolean
-  adminApiKey?: string
+  appConfig: AppConfig
+  adminAuth: AdminAuthOptions
   agnoServiceToken?: string
+  ragIndexEnqueuer?: RagIndexEnqueuer
   websiteInstallFetcher?: typeof fetch
   widgetRateLimit?: {
     maxMessages: number
@@ -15,9 +27,12 @@ interface PlatformRoutesOptions {
   }
 }
 
+const defaultWidgetRateLimit = { maxMessages: 30, windowMs: 60_000 }
+
 export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsync {
   return async function registerPlatformRoutes(app) {
-    const widgetRateLimit = createWidgetRateLimiter(options.widgetRateLimit)
+    const widgetRateLimitConfig = { ...defaultWidgetRateLimit, ...options.widgetRateLimit }
+    const widgetRateLimit = createWidgetRateLimiter(widgetRateLimitConfig)
 
     app.addHook("preHandler", async (request, reply) => {
       if (request.url.includes("/internal/agent-tools/")) {
@@ -33,12 +48,75 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
         return
       }
-      if (!request.url.includes("/widget/") && !options.allowDevAdminStub) {
-        if (isAdminAuthorized(request.headers, options.adminApiKey)) return
-        await reply.status(401).send({
+      if (request.url.includes("/admin/bootstrap")) {
+        if (!isAdminApiKeyAuthorized(request.headers, options.adminAuth.adminApiKey)) {
+          return reply.status(401).send({
+            error: {
+              code: "ADMIN_AUTH_REQUIRED",
+              message: "Bootstrap requires ADMIN_API_KEY.",
+            },
+          })
+        }
+        return
+      }
+      if (!request.url.includes("/widget/")) {
+        const authResult = await resolveAdminAuth(request.headers, options.adminAuth)
+        if (!authResult.authorized) {
+          return sendAdminAuthRequired(reply, options.adminAuth.betterAuthEnabled)
+        }
+      }
+    })
+
+    app.post("/admin/bootstrap", async (request, reply) => {
+      if (!options.adminAuth.betterAuthEnabled || !options.adminAuth.auth) {
+        return reply.status(503).send({
           error: {
-            code: "ADMIN_AUTH_REQUIRED",
-            message: "Admin API key is required.",
+            code: "BETTER_AUTH_DISABLED",
+            message: "Set BETTER_AUTH_ENABLED=true before bootstrapping admin users.",
+          },
+        })
+      }
+      const bootstrapEmail = options.appConfig.auth.bootstrapEmail
+      if (!bootstrapEmail) {
+        return reply.status(400).send({
+          error: {
+            code: "BOOTSTRAP_EMAIL_REQUIRED",
+            message: "ADMIN_BOOTSTRAP_EMAIL must be configured.",
+          },
+        })
+      }
+      const body = (request.body ?? {}) as { password?: string; name?: string }
+      const password = typeof body.password === "string" ? body.password : ""
+      if (password.length < 12) {
+        return reply.status(400).send({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "password must be at least 12 characters.",
+          },
+        })
+      }
+      try {
+        const result = await options.adminAuth.auth.api.signUpEmail({
+          body: {
+            email: bootstrapEmail,
+            password,
+            name: typeof body.name === "string" && body.name.trim() ? body.name.trim() : "Platform Admin",
+          },
+        })
+        return {
+          bootstrapComplete: true,
+          user: {
+            id: result.user.id,
+            email: result.user.email,
+          },
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Bootstrap failed."
+        const statusCode = message.toLowerCase().includes("already") ? 409 : 400
+        return reply.status(statusCode).send({
+          error: {
+            code: statusCode === 409 ? "BOOTSTRAP_ALREADY_DONE" : "BOOTSTRAP_FAILED",
+            message,
           },
         })
       }
@@ -124,6 +202,76 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       }
       const deleted = await options.store.deleteProject(projectId)
       return { project: deleted ?? project }
+    })
+
+    app.get("/admin/projects/:projectId/ai-config", async (request, reply) => {
+      const { projectId } = request.params as { projectId: string }
+      const config = await options.store.getProjectAiConfig(projectId)
+      if (!config) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
+      const secrets = await options.store.getProjectAiSecrets(projectId)
+      const probe = await probeProjectEmbedding(secrets, options.appConfig)
+      return { ...config, embedding: { ...config.embedding, probe } }
+    })
+
+    app.patch("/admin/projects/:projectId/ai-config", async (request, reply) => {
+      const { projectId } = request.params as { projectId: string }
+      const body = request.body as Partial<{
+        llm: {
+          source?: "platform" | "project"
+          apiKey?: string | null
+          baseUrl?: string | null
+          model?: string | null
+        }
+        embedding: {
+          source?: "platform" | "project"
+          provider?: EmbeddingProviderMode
+          apiKey?: string | null
+          embedderUrl?: string | null
+          model?: string | null
+        }
+      }>
+
+      const updated = await options.store.updateProjectAiConfig(projectId, body)
+      if (!updated) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
+      return { config: updated }
+    })
+
+    app.post("/admin/projects/:projectId/ai-config/embedding/test", async (request, reply) => {
+      const { projectId } = request.params as { projectId: string }
+      const body = (request.body ?? {}) as { sample?: string }
+      const project = await options.store.getProject(projectId)
+      if (!project) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
+      const secrets = await options.store.getProjectAiSecrets(projectId)
+      try {
+        const result = await runProjectEmbeddingSmokeTest(secrets, options.appConfig, body.sample)
+        return result
+      } catch (error) {
+        return reply.status(502).send({
+          error: {
+            code: "EMBEDDING_SMOKE_TEST_FAILED",
+            message: error instanceof Error ? error.message : "Embedding smoke test failed",
+          },
+        })
+      }
+    })
+
+    app.post("/admin/projects/:projectId/ai-config/llm/test", async (request, reply) => {
+      const { projectId } = request.params as { projectId: string }
+      const body = (request.body ?? {}) as { sample?: string }
+      const project = await options.store.getProject(projectId)
+      if (!project) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
+      const secrets = await options.store.getProjectAiSecrets(projectId)
+      try {
+        const result = await runProjectLlmSmokeTest(secrets, options.appConfig, body.sample)
+        return result
+      } catch (error) {
+        return reply.status(502).send({
+          error: {
+            code: "LLM_SMOKE_TEST_FAILED",
+            message: error instanceof Error ? error.message : "LLM smoke test failed",
+          },
+        })
+      }
     })
 
     app.post("/admin/projects/:projectId/chatbots", async (request, reply) => {
@@ -235,6 +383,37 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       const { chatbotId, contentId } = request.params as { chatbotId: string; contentId: string }
       const result = await options.store.publishContent(chatbotId, contentId)
       if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Content not found" } })
+
+      if (options.ragIndexEnqueuer) {
+        try {
+          await options.ragIndexEnqueuer({
+            chatbotId,
+            contentItemId: contentId,
+            contentVersionId: result.source.sourceVersionId,
+            documentId: result.documentId,
+          })
+        } catch (error) {
+          request.log.error(
+            {
+              err: error,
+              errorMessage: error instanceof Error ? error.message : String(error),
+              chatbotId,
+              contentId,
+            },
+            "failed to enqueue rag.index job",
+          )
+        }
+
+        const refreshedSource = (await options.store.listKnowledge(chatbotId)).find((item) => item.contentItemId === contentId)
+        return {
+          item: result.item,
+          source: refreshedSource ?? result.source,
+          chunkCount: refreshedSource?.chunkCount ?? result.chunkCount,
+          documentId: result.documentId,
+          indexing: refreshedSource?.status !== "indexed",
+        }
+      }
+
       return result
     })
 
@@ -265,7 +444,12 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       const { chatbotId } = request.params as { chatbotId: string }
       const result = await options.store.listConnectors(chatbotId)
       if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
-      return { ...result, deployment: withAbsoluteInstallSnippet(result.deployment, request) }
+      const deployment = withAbsoluteInstallSnippet(result.deployment, request)
+      return {
+        ...result,
+        deployment,
+        widgetPolicy: buildWidgetPolicy(deployment, widgetRateLimitConfig),
+      }
     })
 
     app.patch("/admin/chatbots/:chatbotId/connectors/website", async (request, reply) => {
@@ -292,6 +476,41 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       const connector = await options.store.updateConnectorStatus(chatbotId, channel, body.status)
       if (!connector) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Connector not found" } })
       return { connector }
+    })
+
+    app.post("/admin/chatbots/:chatbotId/connectors/website/origin-check", async (request, reply) => {
+      const { chatbotId } = request.params as { chatbotId: string }
+      const body = request.body as Partial<{ origin: string }>
+      if (!body.origin?.trim()) {
+        return reply.status(400).send({ error: { code: "VALIDATION_ERROR", message: "origin is required" } })
+      }
+      const result = await options.store.listConnectors(chatbotId)
+      if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
+      const parsed = parseOriginInput(body.origin)
+      if (!parsed) {
+        return reply.status(400).send({ error: { code: "VALIDATION_ERROR", message: "origin must be a valid URL or hostname" } })
+      }
+      if (result.deployment.allowedDomains.length === 0) {
+        return {
+          allowed: false,
+          hostname: parsed.hostname,
+          origin: parsed.origin,
+          reason: "Configure at least one allowed website domain before public widget chat is enabled.",
+          code: "WIDGET_DOMAIN_NOT_CONFIGURED",
+        }
+      }
+      const matchedDomain = result.deployment.allowedDomains.find((domain) => domain.toLowerCase() === parsed.hostname)
+      const allowed = Boolean(matchedDomain)
+      return {
+        allowed,
+        hostname: parsed.hostname,
+        origin: parsed.origin,
+        matchedDomain: matchedDomain ?? null,
+        reason: allowed
+          ? undefined
+          : `Origin host "${parsed.hostname}" is not in the allowed domain list.`,
+        code: allowed ? undefined : "ORIGIN_NOT_ALLOWED",
+      }
     })
 
     app.post("/admin/chatbots/:chatbotId/connectors/website/verify", async (request, reply) => {
@@ -475,6 +694,35 @@ function parseWebsiteUrl(value: string) {
   }
 }
 
+function parseOriginInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const url = trimmed.includes("://") ? new URL(trimmed) : new URL(`https://${trimmed}`)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null
+    return { hostname: url.hostname.toLowerCase(), origin: url.origin }
+  } catch {
+    return null
+  }
+}
+
+function buildWidgetPolicy(
+  deployment: { allowedDomains: string[]; installStatus: string },
+  rateLimit: { maxMessages: number; windowMs: number },
+) {
+  const windowSeconds = Math.max(1, Math.round(rateLimit.windowMs / 1000))
+  return {
+    originProtection: deployment.allowedDomains.length > 0 ? ("enforced" as const) : ("blocked_until_configured" as const),
+    allowedDomains: deployment.allowedDomains,
+    installStatus: deployment.installStatus,
+    rateLimit: {
+      maxMessages: rateLimit.maxMessages,
+      windowMs: rateLimit.windowMs,
+      summary: `${rateLimit.maxMessages} messages per ${windowSeconds} seconds per visitor session`,
+    },
+  }
+}
+
 function normalizeAllowedDomains(values: string[]) {
   const normalized = values
     .map((value) => normalizeAllowedDomain(value))
@@ -514,14 +762,6 @@ function isUniqueConstraintError(error: unknown): boolean {
     current = "cause" in current ? current.cause : undefined
   }
   return false
-}
-
-function isAdminAuthorized(headers: Record<string, string | string[] | undefined>, adminApiKey: string | undefined) {
-  if (!adminApiKey) return false
-  const direct = headers["x-khanect-admin-api-key"]
-  if (direct === adminApiKey || (Array.isArray(direct) && direct.includes(adminApiKey))) return true
-  const authorization = headers.authorization
-  return authorization === `Bearer ${adminApiKey}`
 }
 
 function setWidgetCorsHeaders(reply: {
@@ -615,7 +855,11 @@ function buildWebsiteWidgetScript(publicKey: string) {
       });
       const data = await response.json();
       if (!response.ok) {
-        messages.lastElementChild.textContent = data && data.error && data.error.message ? data.error.message : "Chat is unavailable right now. Please try again later.";
+        const retryAfter = response.headers.get("retry-after");
+        const errorMessage = data && data.error && data.error.message ? data.error.message : "Chat is unavailable right now. Please try again later.";
+        messages.lastElementChild.textContent = response.status === 429 && retryAfter
+          ? errorMessage + " Try again in " + retryAfter + " seconds."
+          : errorMessage;
         return;
       }
       messages.lastElementChild.textContent = data.answer || "I do not have an approved answer yet.";

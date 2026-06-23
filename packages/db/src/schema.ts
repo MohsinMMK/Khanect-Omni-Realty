@@ -74,6 +74,30 @@ export const project = pgTable(
   ],
 )
 
+export const projectAiConfig = pgTable(
+  "project_ai_config",
+  {
+    projectId: uuid("project_id")
+      .primaryKey()
+      .references(() => project.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    llmSource: text("llm_source").notNull().default("platform"),
+    llmApiKeyEncrypted: text("llm_api_key_encrypted"),
+    llmBaseUrl: text("llm_base_url"),
+    llmModel: text("llm_model"),
+    embeddingSource: text("embedding_source").notNull().default("platform"),
+    embeddingProvider: text("embedding_provider"),
+    embeddingApiKeyEncrypted: text("embedding_api_key_encrypted"),
+    embedderUrl: text("embedder_url"),
+    embeddingModel: text("embedding_model"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("project_ai_config_tenant_idx").on(table.tenantId)],
+)
+
 export const chatbot = pgTable(
   "chatbot",
   {

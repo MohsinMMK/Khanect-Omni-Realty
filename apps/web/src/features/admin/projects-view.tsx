@@ -22,18 +22,19 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@workspace/ui/components/drawer"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@workspace/ui/components/empty"
+import { Checkbox } from "@workspace/ui/components/checkbox"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
 import { Separator } from "@workspace/ui/components/separator"
 import { Textarea } from "@workspace/ui/components/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
+
 import { cn } from "@workspace/ui/lib/utils"
 import {
   Archive,
   ArchiveRestore,
   Building2,
-  Check,
   FilePlus2,
+  KeyRound,
   MoreHorizontal,
   Plus,
   SendHorizontal,
@@ -47,7 +48,9 @@ import { capabilityOptions, capabilityPayload } from "@/lib/capabilities"
 import { cleanFileTitle, inferContentType } from "@/lib/content-helpers"
 import { AlertCallout } from "./components"
 import { newBotSteps } from "./constants"
-import type { Chatbot, ChatAnswer, ContentItem, NewBotStepKey, Project } from "./types"
+import { ProjectAiKeyBadges } from "./project-ai-key-badges"
+import { ProjectAiSettingsDrawer } from "./project-ai-settings-drawer"
+import type { Chatbot, ChatAnswer, ContentItem, NewBotStepKey, Project, ProjectAiKeySummary } from "./types"
 
 export function ProjectsView(props: {
   projects: Project[]
@@ -59,6 +62,7 @@ export function ProjectsView(props: {
   onCreated: (project: Project, chatbot: Chatbot) => void
   onChatbotCreated: (chatbot: Chatbot) => void
   onProjectUpdated: (project: Project) => void
+  onProjectAiKeysUpdated: (projectId: string, aiKeys: ProjectAiKeySummary) => void
   onProjectDeleted: (projectId: string) => void
   onStart: (projectId: string) => void
 }) {
@@ -66,6 +70,7 @@ export function ProjectsView(props: {
   const [projectActionId, setProjectActionId] = useState<string | null>(null)
   const [projectActionError, setProjectActionError] = useState("")
   const [confirmingProjectAction, setConfirmingProjectAction] = useState<{ type: "archive" | "unarchive" | "delete"; project: Project } | null>(null)
+  const [aiSettingsProject, setAiSettingsProject] = useState<Project | null>(null)
 
   async function archiveProject(project: Project) {
     setProjectActionId(project.id)
@@ -151,6 +156,13 @@ export function ProjectsView(props: {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuGroup>
+                          <DropdownMenuItem onClick={() => setAiSettingsProject(project)}>
+                            <KeyRound data-icon="inline-start" />
+                            AI keys
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
                           {isArchived ? (
                             <DropdownMenuItem disabled={projectActionId === project.id} onClick={() => setConfirmingProjectAction({ type: "unarchive", project })}>
                               <ArchiveRestore data-icon="inline-start" />
@@ -178,7 +190,10 @@ export function ProjectsView(props: {
                     </DropdownMenu>
                   </CardAction>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex flex-col gap-3">
+                  <ProjectAiKeyBadges
+                    aiKeys={project.aiKeys ?? { llmSource: "platform", embeddingSource: "platform" }}
+                  />
                   <div className="text-sm text-muted-foreground">
                     {isArchived
                       ? "Archived project. Delete is available from the actions menu."
@@ -218,6 +233,15 @@ export function ProjectsView(props: {
           })}
         </section>
       </div>
+
+      <ProjectAiSettingsDrawer
+        open={Boolean(aiSettingsProject)}
+        project={aiSettingsProject}
+        onOpenChange={(open) => { if (!open) setAiSettingsProject(null) }}
+        onSaved={(projectId, aiKeys) => {
+          props.onProjectAiKeysUpdated(projectId, aiKeys)
+        }}
+      />
 
       <AlertDialog open={Boolean(confirmingProjectAction)} onOpenChange={(open) => { if (!open) setConfirmingProjectAction(null) }}>
         <AlertDialogContent size="sm">
@@ -867,32 +891,31 @@ export function CapabilityPicker({ disabled = false, value, onChange }: { disabl
   return (
     <Field>
       <FieldLabel>Capabilities</FieldLabel>
-      <ToggleGroup
-        className="grid w-full grid-cols-2 gap-2"
-        disabled={disabled}
-        multiple
-        value={value}
-        variant="outline"
-        onValueChange={onChange}
-      >
+      <div className="grid w-full grid-cols-2 gap-2">
         {capabilityOptions.map((option) => {
-          const selected = value.includes(option.value)
+          const checked = value.includes(option.value)
           return (
-            <ToggleGroupItem
-              aria-label={option.label}
-              className="h-10 min-w-0 justify-start gap-2 rounded-full px-3"
-              disabled={disabled}
+            <Field
               key={option.value}
-              value={option.value}
+              className="flex-row items-center gap-2 rounded-2xl border border-border/60 px-3 py-2"
+              data-disabled={disabled || undefined}
             >
-              <span className="flex size-4 shrink-0 items-center justify-center rounded-full border border-border">
-                {selected && <Check />}
-              </span>
-              <span className="truncate">{option.label}</span>
-            </ToggleGroupItem>
+              <Checkbox
+                checked={checked}
+                disabled={disabled}
+                id={`capability-${option.value}`}
+                onCheckedChange={(next) => {
+                  if (next) onChange([...value, option.value])
+                  else onChange(value.filter((item) => item !== option.value))
+                }}
+              />
+              <FieldLabel className="mb-0 font-normal" htmlFor={`capability-${option.value}`}>
+                {option.label}
+              </FieldLabel>
+            </Field>
           )
         })}
-      </ToggleGroup>
+      </div>
     </Field>
   )
 }

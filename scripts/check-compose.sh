@@ -11,5 +11,7 @@ sed \
   docker compose --env-file env.example -f - config >/tmp/khanect-compose-skeleton-config.out
 
 docker compose -f "$repo_root/docker-compose.phase0.yml" config >/tmp/khanect-compose-phase0-config.out
+docker compose -f "$repo_root/docker-compose.phase0.yml" -f "$repo_root/docker-compose.smoke.yml" config >/tmp/khanect-compose-smoke-config.out
+docker compose -f "$repo_root/docker-compose.phase0.yml" -f "$repo_root/docker-compose.bge-m3.yml" config >/tmp/khanect-compose-bge-m3-config.out
 
 echo "compose config ok"

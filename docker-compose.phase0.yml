@@ -21,6 +21,10 @@ x-app-environment: &app-environment
   AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
   AGNO_MODEL: gpt-5-mini
   AGNO_EMBEDDING_MODEL: text-embedding-3-small
+  EMBEDDER_URL: http://rag-embedder:8080
+  EMBEDDING_MODEL: BAAI/bge-m3
+  RAG_INDEX_SYNC: "false"
+  WORKER_HEALTH_PORT: "3001"
 
 services:
   postgres:
@@ -33,11 +37,21 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   clamav:
     image: clamav/clamav:stable
@@ -54,6 +68,23 @@ services:
     expose:
       - "8000"
 
+  rag-embedder:
+    build:
+      context: .
+      dockerfile: apps/rag-embedder/Dockerfile
+    image: khanect-omni-realty-rag-embedder:phase0
+    environment:
+      EMBEDDER_MODE: stub
+      EMBEDDING_MODEL: BAAI/bge-m3
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   app:
     build:
       context: .
@@ -64,12 +95,24 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - postgres
-      - redis
-      - clamav
-      - agno-agent
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rag-embedder:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+      agno-agent:
+        condition: service_started
     volumes:
       - uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   worker:
     build:
@@ -79,11 +122,24 @@ services:
     command: ["node", "apps/worker/dist/index.js"]
     environment: *app-environment
     depends_on:
-      - postgres
-      - redis
-      - clamav
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rag-embedder:
+        condition: service_healthy
+      clamav:
+        condition: service_started
     volumes:
       - uploads-data:/app/uploads
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   postgres-data:

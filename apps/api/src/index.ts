@@ -12,15 +12,24 @@ async function shutdown(signal: NodeJS.Signals) {
   if (closing) return
   closing = true
   app.log.info({ signal }, "shutting down api")
-  await app.close()
+  const timeout = setTimeout(() => {
+    app.log.error({ signal }, "api shutdown timed out; forcing exit")
+    process.exit(1)
+  }, config.runtime.shutdownTimeoutMs)
+  timeout.unref()
+  try {
+    await app.close()
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
-process.on("SIGINT", (signal) => {
+function handleSignal(signal: NodeJS.Signals) {
   void shutdown(signal).finally(() => process.exit(0))
-})
-process.on("SIGTERM", (signal) => {
-  void shutdown(signal).finally(() => process.exit(0))
-})
+}
+
+process.on("SIGINT", handleSignal)
+process.on("SIGTERM", handleSignal)
 
 try {
   await app.listen({ port, host })

@@ -1,0 +1,13 @@
+# Smoke-test override when host Redis already occupies :6379 or API :3000 is taken.
+services:
+  app:
+    ports:
+      - "3002:3000"
+    environment:
+      REDIS_URL: redis://host.docker.internal:6379
+      APP_BASE_URL: http://localhost:3002
+      API_BASE_URL: http://localhost:3002/api/v1
+
+  worker:
+    environment:
+      REDIS_URL: redis://host.docker.internal:6379

@@ -1,9 +1,19 @@
-import { createUuidV7 } from "@workspace/core"
+import type { AppConfig } from "@workspace/config"
+import {
+  createProjectAiRuntimeResolver,
+  createStubEmbeddingProvider,
+  createUuidV7,
+  type EmbeddingProvider,
+  type ProjectAiConfigDto,
+  type ProjectAiConfigUpdateInput,
+  type ProjectAiRuntimeResolver,
+  type ProjectAiSecrets,
+} from "@workspace/core"
 import { and, desc, eq, like, sql } from "drizzle-orm"
 import type { Pool } from "pg"
 
 import type { AppDb } from "./index.js"
-import { STUB_EMBEDDING_DIMENSION, embedTextStubHashV1, DEFAULT_TENANT_DOMAIN } from "./phase1a.js"
+import { DEFAULT_TENANT_DOMAIN, serializePgVector } from "./phase1a.js"
 import {
   channelConnector,
   channelConversation,
@@ -16,9 +26,23 @@ import {
   auditLog,
   project,
   ragChunk,
+  projectAiConfig,
   ragDocument,
   tenant,
 } from "./schema.js"
+import {
+  applyProjectAiUpdate,
+  DEFAULT_PROJECT_AI_KEY_SUMMARY,
+  deleteProjectAiRecord,
+  loadProjectAiSecretsFromDb,
+  mapProjectAiConfigDto,
+  mapProjectAiKeySummary,
+  mapRowToProjectAiRecord,
+  resolveProjectRuntimeProviders,
+  upsertProjectAiRecord,
+  type ProjectAiRecord,
+  type RuntimeAnswerProvider,
+} from "./project-ai-store.js"
 
 export type ChatbotCapability = "faq" | "lead_capture" | "appointment_booking"
 export type ConnectorChannel = "website" | "whatsapp" | "instagram_dm"
@@ -27,11 +51,17 @@ export type KnowledgeSyncStatus = "pending" | "syncing" | "indexed" | "failed"
 export type PlatformContentStatus = "draft" | "published"
 export type PlatformContentType = "project" | "property" | "faq" | "area" | "policy" | "general"
 
+export interface ProjectAiKeySummary {
+  llmSource: "platform" | "project"
+  embeddingSource: "platform" | "project"
+}
+
 export interface ProjectDto {
   id: string
   name: string
   domain: string | null
   status: "active" | "archived"
+  aiKeys: ProjectAiKeySummary
   createdAt: string
   updatedAt: string
 }
@@ -125,6 +155,30 @@ export interface PlatformAnswerProviderResult {
 
 export type PlatformAnswerProvider = (input: PlatformAnswerProviderInput) => Promise<PlatformAnswerProviderResult>
 
+export interface PlatformPublishResult {
+  item: PlatformContentItemDto
+  source: PlatformKnowledgeSourceDto
+  chunkCount: number
+  documentId: string
+  indexing: boolean
+}
+
+export interface PlatformIndexInput {
+  chatbotId: string
+  contentItemId: string
+  sourceVersionId: string
+  documentId: string
+  embed: EmbeddingProvider
+}
+
+export interface ProductionChatbotStoreOptions {
+  answerProvider?: PlatformAnswerProvider
+  embeddingProvider?: EmbeddingProvider
+  appConfig?: AppConfig
+  encryptionKey?: string
+  projectAiResolver?: ProjectAiRuntimeResolver
+}
+
 export interface ChannelConnectorDto {
   id: string
   chatbotId: string
@@ -177,6 +231,9 @@ export interface ProductionChatbotStore {
   archiveProject(id: string): Promise<ProjectDto | null>
   unarchiveProject(id: string): Promise<ProjectDto | null>
   deleteProject(id: string): Promise<ProjectDto | null>
+  getProjectAiConfig(projectId: string): Promise<ProjectAiConfigDto | null>
+  updateProjectAiConfig(projectId: string, input: ProjectAiConfigUpdateInput): Promise<ProjectAiConfigDto | null>
+  getProjectAiSecrets(projectId: string): Promise<ProjectAiSecrets | null>
   listChatbots(projectId: string): Promise<ChatbotDto[]>
   createChatbot(input: {
     projectId: string
@@ -209,7 +266,8 @@ export interface ProductionChatbotStore {
     slug: string
     body: string
   }>): Promise<PlatformContentItemDto | null>
-  publishContent(chatbotId: string, contentId: string): Promise<{ item: PlatformContentItemDto; source: PlatformKnowledgeSourceDto; chunkCount: number } | null>
+  publishContent(chatbotId: string, contentId: string): Promise<PlatformPublishResult | null>
+  indexPlatformContent(input: PlatformIndexInput): Promise<{ chunkCount: number } | null>
   deleteContent(chatbotId: string, contentId: string): Promise<PlatformContentItemDto | null>
   listKnowledge(chatbotId: string): Promise<PlatformKnowledgeSourceDto[]>
   testMessage(chatbotId: string, input: { message: string; topK?: number; channel?: ConnectorChannel }): Promise<PlatformChatAnswerDto | null>
@@ -219,6 +277,18 @@ export interface ProductionChatbotStore {
   updateWebsiteInstallStatus(chatbotId: string, status: ChatbotDeploymentDto["installStatus"]): Promise<ChatbotDeploymentDto | null>
   getDeploymentByPublicKey(publicKey: string): Promise<ChatbotDeploymentDto | null>
   sendWidgetMessage(publicKey: string, input: { message: string; anonymousSessionId?: string }): Promise<PlatformChatAnswerDto | null>
+  findActiveChatbotForChannel(channel: Exclude<ConnectorChannel, "website">): Promise<ChatbotDto | null>
+  recordChannelExchange(
+    chatbotId: string,
+    input: {
+      channel: Exclude<ConnectorChannel, "website">
+      externalUserId: string
+      externalMessageId: string
+      inboundText: string
+      outboundText: string
+      actionTrace?: Record<string, unknown>
+    },
+  ): Promise<void>
   listConversations(chatbotId: string): Promise<PlatformConversationSummaryDto[]>
   recordAgentToolAction(input: { toolName: string; payload: Record<string, unknown>; status?: string }): Promise<PlatformAgentActionDto>
   listAgentActions(): Promise<PlatformAgentActionDto[]>
@@ -232,10 +302,61 @@ interface ChunkRecord {
   content: string
   title: string
   sourceVersionId: string
+  embedding: number[]
 }
 
-export function createInMemoryProductionChatbotStore(options: { answerProvider?: PlatformAnswerProvider } = {}): ProductionChatbotStore {
+interface PendingIndexRecord {
+  chatbotId: string
+  contentItemId: string
+  sourceVersionId: string
+  documentId: string
+  knowledgeSourceId: string
+  title: string
+  body: string
+  contentType: PlatformContentType
+}
+
+const MIN_VECTOR_RELEVANCE_SCORE = 0.05
+
+function createDefaultProjectAiResolver(
+  options: ProductionChatbotStoreOptions,
+  loadSecrets: (projectId: string) => Promise<ProjectAiSecrets | null>,
+): ProjectAiRuntimeResolver | undefined {
+  if (options.projectAiResolver) return options.projectAiResolver
+  if (!options.appConfig) return undefined
+  return createProjectAiRuntimeResolver(options.appConfig.ai, loadSecrets)
+}
+
+function mapMemoryProjectAiRecord(record: ProjectAiRecord): ProjectAiRecord {
+  return {
+    ...record,
+    llmApiKey: record.llmApiKey,
+    embeddingApiKey: record.embeddingApiKey,
+  }
+}
+
+function mapMemorySecrets(record: ProjectAiRecord | undefined, projectId: string): ProjectAiSecrets | null {
+  if (!record) return null
+  return {
+    projectId,
+    llmSource: record.llmSource,
+    llmApiKey: record.llmApiKey,
+    llmBaseUrl: record.llmBaseUrl ?? undefined,
+    llmModel: record.llmModel ?? undefined,
+    embeddingSource: record.embeddingSource,
+    embeddingProvider: record.embeddingProvider ?? undefined,
+    embeddingApiKey: record.embeddingApiKey,
+    embedderUrl: record.embedderUrl ?? undefined,
+    embeddingModel: record.embeddingModel ?? undefined,
+  }
+}
+
+export function createInMemoryProductionChatbotStore(options: ProductionChatbotStoreOptions = {}): ProductionChatbotStore {
+  const embeddingProvider = options.embeddingProvider ?? createStubEmbeddingProvider()
+  const encryptionKey = options.encryptionKey ?? "phase0_dev_only_encryption_key_min_32_chars"
+  const appConfig = options.appConfig
   const projects = new Map<string, ProjectDto>()
+  const projectAiConfigs = new Map<string, ProjectAiRecord>()
   const chatbots = new Map<string, ChatbotDto>()
   const contentItems = new Map<string, PlatformContentItemDto>()
   const knowledgeSources = new Map<string, PlatformKnowledgeSourceDto>()
@@ -244,12 +365,26 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
   const deployments = new Map<string, ChatbotDeploymentDto>()
   const conversations = new Map<string, PlatformConversationSummaryDto>()
   const agentActions = new Map<string, PlatformAgentActionDto>()
+  const pendingIndexes = new Map<string, PendingIndexRecord>()
 
   const now = () => new Date().toISOString()
+  const projectAiResolver = createDefaultProjectAiResolver(options, async (projectId) => mapMemorySecrets(projectAiConfigs.get(projectId), projectId))
+  const runtimeContext = {
+    appConfig: appConfig ?? ({ ai: { embeddingDimension: 1024, embeddingProvider: "stub", embeddingModel: "stub/hash-v1", llmBaseUrl: "https://api.openai.com/v1", llmModel: "gpt-4o-mini" } } as AppConfig),
+    encryptionKey,
+    projectAiResolver,
+    defaultEmbeddingProvider: embeddingProvider,
+    defaultAnswerProvider: options.answerProvider as RuntimeAnswerProvider | undefined,
+  }
 
   return {
     async listProjects() {
-      return [...projects.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      return [...projects.values()]
+        .map((item) => ({
+          ...item,
+          aiKeys: mapProjectAiKeySummary(projectAiConfigs.get(item.id)),
+        }))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     },
     async createProject(input) {
       if (input.domain && [...projects.values()].some((project) => project.domain === input.domain)) {
@@ -261,6 +396,7 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
         name: input.name,
         domain: input.domain ?? null,
         status: "active",
+        aiKeys: DEFAULT_PROJECT_AI_KEY_SUMMARY,
         createdAt: timestamp,
         updatedAt: timestamp,
       }
@@ -317,7 +453,22 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
       for (const [chunkId, chunk] of chunks) {
         if (sourceIds.has(chunk.knowledgeSourceId) || sourceVersionIds.has(chunk.sourceVersionId) || chatbotIds.has(chunk.chatbotId)) chunks.delete(chunkId)
       }
+      projectAiConfigs.delete(id)
       return existing
+    },
+    async getProjectAiConfig(projectId) {
+      if (!projects.has(projectId) || !appConfig) return null
+      return mapProjectAiConfigDto(projectAiConfigs.get(projectId) ?? null, appConfig, projectId)
+    },
+    async updateProjectAiConfig(projectId, input) {
+      if (!projects.has(projectId) || !appConfig) return null
+      const next = applyProjectAiUpdate(projectAiConfigs.get(projectId) ?? null, input, projectId, encryptionKey, false)
+      projectAiConfigs.set(projectId, mapMemoryProjectAiRecord(next))
+      return mapProjectAiConfigDto(projectAiConfigs.get(projectId) ?? null, appConfig, projectId)
+    },
+    async getProjectAiSecrets(projectId) {
+      if (!projects.has(projectId)) return null
+      return mapMemorySecrets(projectAiConfigs.get(projectId), projectId)
     },
     async listChatbots(projectId) {
       return [...chatbots.values()]
@@ -456,6 +607,7 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
       if (!existing || existing.chatbotId !== chatbotId) return null
       const timestamp = now()
       const versionId = createUuidV7()
+      const documentId = createUuidV7()
       const item: PlatformContentItemDto = {
         ...existing,
         status: "published",
@@ -465,9 +617,12 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
       contentItems.set(item.id, item)
 
       for (const [chunkId, chunk] of chunks) {
-        if (chunk.sourceVersionId === versionId || chunk.knowledgeSourceId === contentId) chunks.delete(chunkId)
+        if (chunk.sourceVersionId === versionId) chunks.delete(chunkId)
       }
-      const sourceChunks = chunkContent(item.title, item.body)
+      for (const [sourceId, source] of knowledgeSources) {
+        if (source.chatbotId === chatbotId && source.contentItemId === contentId) knowledgeSources.delete(sourceId)
+      }
+
       const source: PlatformKnowledgeSourceDto = {
         id: createUuidV7(),
         chatbotId,
@@ -475,32 +630,81 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
         sourceVersionId: versionId,
         title: item.title,
         sourceType: item.contentType,
-        chunkCount: sourceChunks.length,
-        status: "indexed",
+        chunkCount: 0,
+        status: "syncing",
         indexedAt: timestamp,
       }
       knowledgeSources.set(source.id, source)
-      for (const chunk of sourceChunks) {
-        chunks.set(chunk.id, {
-          id: chunk.id,
-          knowledgeSourceId: source.id,
-          chatbotId,
-          content: chunk.content,
-          title: item.title,
-          sourceVersionId: versionId,
-        })
-      }
+      pendingIndexes.set(documentId, {
+        chatbotId,
+        contentItemId: item.id,
+        sourceVersionId: versionId,
+        documentId,
+        knowledgeSourceId: source.id,
+        title: item.title,
+        body: item.body,
+        contentType: item.contentType,
+      })
+
       const existingChatbot = chatbots.get(chatbotId)
       if (existingChatbot) {
         chatbots.set(chatbotId, {
           ...existingChatbot,
-          runtimeStatus: "ready",
+          runtimeStatus: "syncing",
           lastIndexedContentVersionId: versionId,
           lastSyncError: null,
           updatedAt: timestamp,
         })
       }
-      return { item, source, chunkCount: sourceChunks.length }
+      return { item, source, chunkCount: 0, documentId, indexing: true }
+    },
+    async indexPlatformContent(input) {
+      const pending = pendingIndexes.get(input.documentId)
+      if (!pending || pending.chatbotId !== input.chatbotId || pending.contentItemId !== input.contentItemId) return null
+
+      const timestamp = now()
+      const sourceChunks = chunkContent(pending.title, pending.body)
+      const embeddings = await input.embed.embedTexts(sourceChunks.map((chunk) => chunk.content))
+
+      for (const [chunkId, chunk] of chunks) {
+        if (chunk.sourceVersionId === pending.sourceVersionId) chunks.delete(chunkId)
+      }
+
+      for (const [index, chunk] of sourceChunks.entries()) {
+        chunks.set(chunk.id, {
+          id: chunk.id,
+          knowledgeSourceId: pending.knowledgeSourceId,
+          chatbotId: pending.chatbotId,
+          content: chunk.content,
+          title: pending.title,
+          sourceVersionId: pending.sourceVersionId,
+          embedding: embeddings[index] ?? [],
+        })
+      }
+
+      const source = knowledgeSources.get(pending.knowledgeSourceId)
+      if (source) {
+        knowledgeSources.set(source.id, {
+          ...source,
+          chunkCount: sourceChunks.length,
+          status: "indexed",
+          indexedAt: timestamp,
+        })
+      }
+
+      const existingChatbot = chatbots.get(pending.chatbotId)
+      if (existingChatbot) {
+        chatbots.set(pending.chatbotId, {
+          ...existingChatbot,
+          runtimeStatus: "ready",
+          lastIndexedContentVersionId: pending.sourceVersionId,
+          lastSyncError: null,
+          updatedAt: timestamp,
+        })
+      }
+
+      pendingIndexes.delete(input.documentId)
+      return { chunkCount: sourceChunks.length }
     },
     async deleteContent(chatbotId, contentId) {
       const existing = contentItems.get(contentId)
@@ -530,7 +734,15 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
       const chatbot = chatbots.get(chatbotId)
       if (!chatbot) return null
       const topK = input.topK ?? 5
-      const sources = searchChunks([...chunks.values()].filter((chunk) => chunk.chatbotId === chatbotId), input.message, topK)
+      const runtime = await resolveProjectRuntimeProviders(chatbot.projectId, runtimeContext)
+      const indexedSourceIds = new Set(
+        [...knowledgeSources.values()]
+          .filter((source) => source.chatbotId === chatbotId && source.status === "indexed")
+          .map((source) => source.id),
+      )
+      const [queryEmbedding] = await runtime.embeddingProvider.embedTexts([input.message])
+      const indexedChunks = [...chunks.values()].filter((chunk) => chunk.chatbotId === chatbotId && indexedSourceIds.has(chunk.knowledgeSourceId))
+      const sources = retrievePlatformSources(indexedChunks, input.message, queryEmbedding, topK)
       return composePlatformAnswer({
         message: input.message,
         sources,
@@ -538,7 +750,8 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
         channel: input.channel ?? "website",
         chatbot,
         chatbotId,
-        answerProvider: options.answerProvider,
+        answerProvider: runtime.answerProvider as PlatformAnswerProvider | undefined,
+        embeddingModel: runtime.embeddingProvider.model,
       })
     },
     async listConnectors(chatbotId) {
@@ -601,6 +814,33 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
       })
       return answer
     },
+    async findActiveChatbotForChannel(channel) {
+      for (const [chatbotId, chatbotConnectors] of connectors) {
+        const connector = chatbotConnectors.find((item) => item.channel === channel && item.status === "active")
+        if (!connector) continue
+        const chatbot = chatbots.get(chatbotId)
+        if (chatbot && chatbot.status !== "archived") return chatbot
+      }
+      return null
+    },
+    async recordChannelExchange(chatbotId, input) {
+      const timestamp = now()
+      const conversationId = `${chatbotId}:${input.channel}:${input.externalUserId}`
+      const existing = conversations.get(conversationId)
+      conversations.set(conversationId, {
+        id: existing?.id ?? createUuidV7(),
+        chatbotId,
+        channel: input.channel,
+        externalThreadId: input.externalUserId,
+        status: "open",
+        messageCount: (existing?.messageCount ?? 0) + 2,
+        lastUserMessage: input.inboundText,
+        lastAssistantMessage: input.outboundText,
+        lastMessageAt: timestamp,
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      })
+    },
     async listConversations(chatbotId) {
       return [...conversations.values()]
         .filter((conversation) => conversation.chatbotId === chatbotId)
@@ -623,7 +863,10 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
   }
 }
 
-export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, options: { answerProvider?: PlatformAnswerProvider } = {}): ProductionChatbotStore {
+export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, options: ProductionChatbotStoreOptions = {}): ProductionChatbotStore {
+  const embeddingProvider = options.embeddingProvider ?? createStubEmbeddingProvider()
+  const encryptionKey = options.encryptionKey ?? "phase0_dev_only_encryption_key_min_32_chars"
+  const appConfig = options.appConfig
   let tenantIdCache: string | null = null
 
   async function ensureTenantId() {
@@ -640,11 +883,28 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
     return tenantIdCache
   }
 
+  const projectAiResolver = createDefaultProjectAiResolver(options, async (projectId) => {
+    const tenantId = await ensureTenantId()
+    return loadProjectAiSecretsFromDb(db, tenantId, projectId, encryptionKey)
+  })
+  const runtimeContext = {
+    appConfig: appConfig ?? ({ ai: { embeddingDimension: 1024, embeddingProvider: "stub", embeddingModel: "stub/hash-v1", llmBaseUrl: "https://api.openai.com/v1", llmModel: "gpt-4o-mini" } } as AppConfig),
+    encryptionKey,
+    projectAiResolver,
+    defaultEmbeddingProvider: embeddingProvider,
+    defaultAnswerProvider: options.answerProvider as RuntimeAnswerProvider | undefined,
+  }
+
   return {
     async listProjects() {
       const tenantId = await ensureTenantId()
       const rows = await db.query.project.findMany({ where: eq(project.tenantId, tenantId), orderBy: [desc(project.updatedAt)] })
-      return rows.map(mapProject)
+      const aiRows = await db.query.projectAiConfig.findMany({ where: eq(projectAiConfig.tenantId, tenantId) })
+      const aiByProjectId = new Map(aiRows.map((row) => [row.projectId, mapRowToProjectAiRecord(row)]))
+      return rows.map((row) => ({
+        ...mapProject(row),
+        aiKeys: mapProjectAiKeySummary(aiByProjectId.get(row.id)),
+      }))
     },
     async createProject(input) {
       const tenantId = await ensureTenantId()
@@ -694,10 +954,37 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
       await db
         .delete(contentItem)
         .where(and(eq(contentItem.tenantId, tenantId), sql`${contentItem.metadata}->>'projectId' = ${id}`))
+      await deleteProjectAiRecord(db, tenantId, id, pool)
       await db
         .delete(project)
         .where(and(eq(project.tenantId, tenantId), eq(project.id, id)))
       return mapped
+    },
+    async getProjectAiConfig(projectId) {
+      const tenantId = await ensureTenantId()
+      const projectRow = await db.query.project.findFirst({ where: and(eq(project.tenantId, tenantId), eq(project.id, projectId)) })
+      if (!projectRow || !appConfig) return null
+      const row = await db.query.projectAiConfig.findFirst({
+        where: and(eq(projectAiConfig.tenantId, tenantId), eq(projectAiConfig.projectId, projectId)),
+      })
+      return mapProjectAiConfigDto(row ? mapRowToProjectAiRecord(row) : null, appConfig, projectId)
+    },
+    async updateProjectAiConfig(projectId, input) {
+      const tenantId = await ensureTenantId()
+      const projectRow = await db.query.project.findFirst({ where: and(eq(project.tenantId, tenantId), eq(project.id, projectId)) })
+      if (!projectRow || !appConfig) return null
+      const existingRow = await db.query.projectAiConfig.findFirst({
+        where: and(eq(projectAiConfig.tenantId, tenantId), eq(projectAiConfig.projectId, projectId)),
+      })
+      const next = applyProjectAiUpdate(existingRow ? mapRowToProjectAiRecord(existingRow) : null, input, projectId, encryptionKey)
+      const saved = await upsertProjectAiRecord(db, tenantId, next)
+      return mapProjectAiConfigDto(saved, appConfig, projectId)
+    },
+    async getProjectAiSecrets(projectId) {
+      const tenantId = await ensureTenantId()
+      const projectRow = await db.query.project.findFirst({ where: and(eq(project.tenantId, tenantId), eq(project.id, projectId)) })
+      if (!projectRow) return null
+      return loadProjectAiSecretsFromDb(db, tenantId, projectId, encryptionKey)
     },
     async listChatbots(projectId) {
       const tenantId = await ensureTenantId()
@@ -893,7 +1180,6 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         .returning()
 
       const documentId = createUuidV7()
-      const sourceChunks = chunkContent(published.title, published.body)
       await db.insert(ragDocument).values({
         id: documentId,
         tenantId,
@@ -901,26 +1187,10 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         sourceId: published.id,
         sourceVersionId: versionId,
         title: published.title,
-        status: "indexed",
-        chunkCount: sourceChunks.length,
+        status: "indexing",
+        chunkCount: 0,
         publishedAt,
-        indexedAt: publishedAt,
       })
-      for (const [index, chunk] of sourceChunks.entries()) {
-        await db.insert(ragChunk).values({
-          id: chunk.id,
-          tenantId,
-          documentId,
-          sourceVersionId: versionId,
-          chunkIndex: index,
-          section: "body",
-          content: chunk.content,
-          metadata: {},
-          embedding: serializePgVector(embedTextStubHashV1(chunk.content)),
-          embeddingModel: "stub/hash-v1",
-          embeddingDimension: STUB_EMBEDDING_DIMENSION,
-        })
-      }
       await db
         .delete(chatbotKnowledgeSource)
         .where(and(eq(chatbotKnowledgeSource.tenantId, tenantId), eq(chatbotKnowledgeSource.chatbotId, chatbotId), eq(chatbotKnowledgeSource.contentItemId, contentId)))
@@ -933,19 +1203,105 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
           chatbotId,
           contentItemId: published.id,
           sourceVersionId: versionId,
-          status: "indexed",
+          status: "syncing",
         })
         .returning()
       await db
         .update(chatbot)
         .set({
-          runtimeStatus: "ready",
+          runtimeStatus: "syncing",
           lastIndexedContentVersionId: versionId,
           lastSyncError: null,
           updatedAt: publishedAt,
         })
         .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, chatbotId)))
-      return { item: mapContent(published, chatbotId), source: mapKnowledgeSource(sourceRow, published.title, published.contentType, sourceChunks.length, publishedAt), chunkCount: sourceChunks.length }
+      return {
+        item: mapContent(published, chatbotId),
+        source: mapKnowledgeSource(sourceRow, published.title, published.contentType, 0, publishedAt),
+        chunkCount: 0,
+        documentId,
+        indexing: true,
+      }
+    },
+    async indexPlatformContent(input) {
+      const tenantId = await ensureTenantId()
+      const chatbotRow = await db.query.chatbot.findFirst({ where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, input.chatbotId)) })
+      const item = await db.query.contentItem.findFirst({ where: and(eq(contentItem.tenantId, tenantId), eq(contentItem.id, input.contentItemId)) })
+      const document = await db.query.ragDocument.findFirst({
+        where: and(eq(ragDocument.tenantId, tenantId), eq(ragDocument.id, input.documentId), eq(ragDocument.sourceVersionId, input.sourceVersionId)),
+      })
+      if (!chatbotRow || !item || !document) return null
+
+      const indexedAt = new Date()
+      try {
+        const sourceChunks = chunkContent(item.title, item.body)
+        const embeddings = await input.embed.embedTexts(sourceChunks.map((chunk) => chunk.content))
+
+        await db.delete(ragChunk).where(and(eq(ragChunk.tenantId, tenantId), eq(ragChunk.documentId, input.documentId)))
+        for (const [index, chunk] of sourceChunks.entries()) {
+          await db.insert(ragChunk).values({
+            id: chunk.id,
+            tenantId,
+            documentId: input.documentId,
+            sourceVersionId: input.sourceVersionId,
+            chunkIndex: index,
+            section: "body",
+            content: chunk.content,
+            metadata: {},
+            embedding: serializePgVector(embeddings[index] ?? []),
+            embeddingModel: input.embed.model,
+            embeddingDimension: input.embed.dimension,
+          })
+        }
+
+        await db
+          .update(ragDocument)
+          .set({ status: "indexed", chunkCount: sourceChunks.length, indexedAt, updatedAt: indexedAt })
+          .where(and(eq(ragDocument.tenantId, tenantId), eq(ragDocument.id, input.documentId)))
+        await db
+          .update(chatbotKnowledgeSource)
+          .set({ status: "indexed", updatedAt: indexedAt })
+          .where(
+            and(
+              eq(chatbotKnowledgeSource.tenantId, tenantId),
+              eq(chatbotKnowledgeSource.chatbotId, input.chatbotId),
+              eq(chatbotKnowledgeSource.contentItemId, input.contentItemId),
+              eq(chatbotKnowledgeSource.sourceVersionId, input.sourceVersionId),
+            ),
+          )
+        await db
+          .update(chatbot)
+          .set({
+            runtimeStatus: "ready",
+            lastIndexedContentVersionId: input.sourceVersionId,
+            lastSyncError: null,
+            updatedAt: indexedAt,
+          })
+          .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, input.chatbotId)))
+
+        return { chunkCount: sourceChunks.length }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await db
+          .update(chatbot)
+          .set({ runtimeStatus: "error", lastSyncError: message, updatedAt: indexedAt })
+          .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, input.chatbotId)))
+        await db
+          .update(ragDocument)
+          .set({ status: "failed", updatedAt: indexedAt })
+          .where(and(eq(ragDocument.tenantId, tenantId), eq(ragDocument.id, input.documentId)))
+        await db
+          .update(chatbotKnowledgeSource)
+          .set({ status: "failed", updatedAt: indexedAt })
+          .where(
+            and(
+              eq(chatbotKnowledgeSource.tenantId, tenantId),
+              eq(chatbotKnowledgeSource.chatbotId, input.chatbotId),
+              eq(chatbotKnowledgeSource.contentItemId, input.contentItemId),
+            ),
+          )
+        throw error instanceof Error ? error : new Error(message)
+      }
     },
     async deleteContent(chatbotId, contentId) {
       const tenantId = await ensureTenantId()
@@ -971,18 +1327,21 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         title: string
         source_type: PlatformContentType
         chunk_count: number
+        status: KnowledgeSyncStatus
         indexed_at: string
       }>(
         `select ks.id,
                 ks.content_item_id,
                 ks.source_version_id,
-                d.title,
-                d.source_type,
-                d.chunk_count,
+                coalesce(d.title, ci.title) as title,
+                coalesce(d.source_type, ci.content_type) as source_type,
+                coalesce(d.chunk_count, 0) as chunk_count,
+                ks.status,
                 coalesce(d.indexed_at, ks.updated_at) as indexed_at
            from chatbot_knowledge_source ks
-           join rag_document d on d.source_version_id = ks.source_version_id
-          where ks.tenant_id = $1 and ks.chatbot_id = $2 and ks.status = 'indexed'
+           join content_item ci on ci.id = ks.content_item_id
+           left join rag_document d on d.source_version_id = ks.source_version_id
+          where ks.tenant_id = $1 and ks.chatbot_id = $2
           order by indexed_at desc`,
         [tenantId, chatbotId],
       )
@@ -994,7 +1353,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         title: row.title,
         sourceType: row.source_type,
         chunkCount: Number(row.chunk_count),
-        status: "indexed",
+        status: row.status,
         indexedAt: new Date(row.indexed_at).toISOString(),
       }))
     },
@@ -1002,42 +1361,92 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
       const tenantId = await ensureTenantId()
       const chatbotRow = await db.query.chatbot.findFirst({ where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, chatbotId)) })
       if (!chatbotRow) return null
-      const result = await pool.query<{
+      const topK = input.topK ?? 5
+      const runtime = await resolveProjectRuntimeProviders(chatbotRow.projectId, runtimeContext)
+      const [queryEmbedding] = await runtime.embeddingProvider.embedTexts([input.message])
+      const queryVector = serializePgVector(queryEmbedding)
+      const vectorResult = await pool.query<{
         chunk_id: string
         knowledge_source_id: string
         title: string
         content: string
         source_version_id: string
+        distance: string | number
       }>(
         `select c.id as chunk_id,
                 ks.id as knowledge_source_id,
                 d.title,
                 c.content,
-                c.source_version_id
+                c.source_version_id,
+                c.embedding <=> $3::vector as distance
            from chatbot_knowledge_source ks
            join rag_document d on d.source_version_id = ks.source_version_id
            join rag_chunk c on c.source_version_id = ks.source_version_id
-          where ks.tenant_id = $1 and ks.chatbot_id = $2 and ks.status = 'indexed'`,
-        [tenantId, chatbotId],
+          where ks.tenant_id = $1
+            and ks.chatbot_id = $2
+            and ks.status = 'indexed'
+            and d.status = 'indexed'
+          order by c.embedding <=> $3::vector
+          limit $4`,
+        [tenantId, chatbotId, queryVector, topK],
       )
-      const sourceChunks = result.rows.map((row) => ({
-        id: row.chunk_id,
-        knowledgeSourceId: row.knowledge_source_id,
-        chatbotId,
-        content: row.content,
-        title: row.title,
-        sourceVersionId: row.source_version_id,
-      }))
-      const topK = input.topK ?? 5
+      const vectorSources: PlatformSourceDto[] = vectorResult.rows
+        .map((row) => ({
+          chunkId: row.chunk_id,
+          knowledgeSourceId: row.knowledge_source_id,
+          title: row.title,
+          excerpt: excerpt(row.content),
+          score: Number((1 - Number(row.distance)).toFixed(6)),
+        }))
+        .filter((source) => source.score >= MIN_VECTOR_RELEVANCE_SCORE)
+
+      let sources = vectorSources
+      if (sources.length === 0) {
+        const keywordResult = await pool.query<{
+          chunk_id: string
+          knowledge_source_id: string
+          title: string
+          content: string
+          source_version_id: string
+        }>(
+          `select c.id as chunk_id,
+                  ks.id as knowledge_source_id,
+                  d.title,
+                  c.content,
+                  c.source_version_id
+             from chatbot_knowledge_source ks
+             join rag_document d on d.source_version_id = ks.source_version_id
+             join rag_chunk c on c.source_version_id = ks.source_version_id
+            where ks.tenant_id = $1
+              and ks.chatbot_id = $2
+              and ks.status = 'indexed'
+              and d.status = 'indexed'`,
+          [tenantId, chatbotId],
+        )
+        sources = searchChunksByKeywords(
+          keywordResult.rows.map((row) => ({
+            id: row.chunk_id,
+            knowledgeSourceId: row.knowledge_source_id,
+            chatbotId,
+            content: row.content,
+            title: row.title,
+            sourceVersionId: row.source_version_id,
+            embedding: queryEmbedding,
+          })),
+          input.message,
+          topK,
+        )
+      }
       const chatbotDto = mapChatbot(chatbotRow)
       return composePlatformAnswer({
         message: input.message,
-        sources: searchChunks(sourceChunks, input.message, topK),
+        sources,
         topK,
         channel: input.channel ?? "website",
         chatbot: chatbotDto,
         chatbotId,
-        answerProvider: options.answerProvider,
+        answerProvider: runtime.answerProvider as PlatformAnswerProvider | undefined,
+        embeddingModel: runtime.embeddingProvider.model,
       })
     },
     async listConnectors(chatbotId) {
@@ -1140,6 +1549,76 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         .where(and(eq(channelConversation.tenantId, tenantId), eq(channelConversation.id, conversation.id)))
       return answer
     },
+    async findActiveChatbotForChannel(channel) {
+      const tenantId = await ensureTenantId()
+      const connectorRow = await db.query.channelConnector.findFirst({
+        where: and(eq(channelConnector.tenantId, tenantId), eq(channelConnector.channel, channel), eq(channelConnector.status, "active")),
+      })
+      if (!connectorRow) return null
+      const chatbotRow = await db.query.chatbot.findFirst({
+        where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, connectorRow.chatbotId)),
+      })
+      return chatbotRow && chatbotRow.status !== "archived" ? mapChatbot(chatbotRow) : null
+    },
+    async recordChannelExchange(chatbotId, input) {
+      const tenantId = await ensureTenantId()
+      const chatbotRow = await db.query.chatbot.findFirst({
+        where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, chatbotId)),
+      })
+      if (!chatbotRow) return
+      const timestamp = new Date()
+      let conversation = await db.query.channelConversation.findFirst({
+        where: and(
+          eq(channelConversation.tenantId, tenantId),
+          eq(channelConversation.chatbotId, chatbotId),
+          eq(channelConversation.channel, input.channel),
+          eq(channelConversation.externalThreadId, input.externalUserId),
+        ),
+      })
+      if (!conversation) {
+        const [created] = await db
+          .insert(channelConversation)
+          .values({
+            id: createUuidV7(),
+            tenantId,
+            projectId: chatbotRow.projectId,
+            chatbotId,
+            channel: input.channel,
+            externalThreadId: input.externalUserId,
+            status: "open",
+            actionTrace: input.actionTrace ?? {},
+            lastMessageAt: timestamp,
+          })
+          .returning()
+        conversation = created
+      }
+      await db.insert(channelMessage).values([
+        {
+          id: createUuidV7(),
+          tenantId,
+          conversationId: conversation.id,
+          direction: "inbound",
+          messageType: "text",
+          content: input.inboundText,
+          sourceIds: [],
+          actionTrace: {},
+        },
+        {
+          id: createUuidV7(),
+          tenantId,
+          conversationId: conversation.id,
+          direction: "outbound",
+          messageType: "text",
+          content: input.outboundText,
+          sourceIds: [],
+          actionTrace: input.actionTrace ?? {},
+        },
+      ])
+      await db
+        .update(channelConversation)
+        .set({ actionTrace: input.actionTrace ?? {}, lastMessageAt: timestamp, updatedAt: timestamp })
+        .where(and(eq(channelConversation.tenantId, tenantId), eq(channelConversation.id, conversation.id)))
+    },
     async listConversations(chatbotId) {
       const tenantId = await ensureTenantId()
       const result = await pool.query<{
@@ -1215,12 +1694,13 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
   }
 }
 
-function mapProject(row: typeof project.$inferSelect): ProjectDto {
+function mapProject(row: typeof project.$inferSelect, aiKeys: ProjectAiKeySummary = DEFAULT_PROJECT_AI_KEY_SUMMARY): ProjectDto {
   return {
     id: row.id,
     name: row.name,
     domain: row.domain,
     status: row.status as ProjectDto["status"],
+    aiKeys,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -1387,8 +1867,28 @@ function chunkContent(title: string, body: string) {
   return [{ id: createUuidV7(), content: text }]
 }
 
-function searchChunks(sourceChunks: ChunkRecord[], query: string, topK: number): PlatformSourceDto[] {
-  const terms = queryTokens(query)
+function searchChunksByEmbedding(sourceChunks: ChunkRecord[], queryEmbedding: number[], topK: number): PlatformSourceDto[] {
+  if (sourceChunks.length === 0 || queryEmbedding.length === 0) return []
+
+  return sourceChunks
+    .map((chunk) => ({
+      chunk,
+      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+    }))
+    .filter(({ score }) => score >= MIN_VECTOR_RELEVANCE_SCORE)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
+    .map(({ chunk, score }) => ({
+      chunkId: chunk.id,
+      knowledgeSourceId: chunk.knowledgeSourceId,
+      title: chunk.title,
+      excerpt: excerpt(chunk.content),
+      score: Number(score.toFixed(6)),
+    }))
+}
+
+function searchChunksByKeywords(sourceChunks: ChunkRecord[], query: string, topK: number): PlatformSourceDto[] {
+  const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) ?? [])].filter((token) => token.length >= 3)
   if (terms.length === 0) return []
 
   return sourceChunks
@@ -1409,6 +1909,19 @@ function searchChunks(sourceChunks: ChunkRecord[], query: string, topK: number):
     }))
 }
 
+function retrievePlatformSources(sourceChunks: ChunkRecord[], query: string, queryEmbedding: number[], topK: number): PlatformSourceDto[] {
+  const vectorMatches = searchChunksByEmbedding(sourceChunks, queryEmbedding, topK)
+  if (vectorMatches.length > 0) return vectorMatches
+  return searchChunksByKeywords(sourceChunks, query, topK)
+}
+
+function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
+  const length = Math.min(left.length, right.length)
+  let dot = 0
+  for (let index = 0; index < length; index += 1) dot += left[index] * right[index]
+  return dot
+}
+
 async function composePlatformAnswer(input: {
   message: string
   sources: PlatformSourceDto[]
@@ -1417,6 +1930,7 @@ async function composePlatformAnswer(input: {
   chatbot: ChatbotDto
   chatbotId: string
   answerProvider?: PlatformAnswerProvider
+  embeddingModel?: string
 }): Promise<PlatformChatAnswerDto> {
   const safeSources = isSensitiveQuery(input.message) ? input.sources.filter((source) => sourceSupportsSensitiveQuery(input.message, source)) : input.sources
   if (safeSources.length === 0) {
@@ -1425,7 +1939,7 @@ async function composePlatformAnswer(input: {
       fallback: true,
       sources: [],
       channel: input.channel,
-      retrieval: { topK: input.topK, model: "approved-source-search" },
+      retrieval: { topK: input.topK, model: input.embeddingModel ?? "approved-source-search" },
       confidence: "none",
       actionTrace: { reason: "no_approved_source", channel: input.channel },
     }
@@ -1440,7 +1954,7 @@ async function composePlatformAnswer(input: {
     fallback: false,
     sources: safeSources,
     channel: input.channel,
-    retrieval: { topK: input.topK, model: providerResult?.model ?? "approved-source-search" },
+    retrieval: { topK: input.topK, model: providerResult?.model ?? input.embeddingModel ?? "approved-source-search" },
     confidence: providerResult?.confidence ?? (safeSources[0]?.score >= 0.66 ? "high" : "medium"),
     actionTrace: {
       reason: "grounded_answer",
@@ -1475,10 +1989,6 @@ function sensitiveTerms(query: string) {
   return groups.flatMap((group) => (group.some((term) => normalized.includes(term)) ? group : []))
 }
 
-function queryTokens(query: string) {
-  return [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) ?? [])].filter((token) => token.length >= 3)
-}
-
 function excerpt(value: string) {
   return value.length > 320 ? `${value.slice(0, 317)}...` : value
 }
@@ -1499,8 +2009,4 @@ function createAgentKey(chatbotId: string) {
 
 function createKnowledgeNamespace(chatbotId: string) {
   return `knowledge_${chatbotId.replace(/-/g, "")}`
-}
-
-function serializePgVector(vector: readonly number[]) {
-  return `[${vector.join(",")}]`
 }

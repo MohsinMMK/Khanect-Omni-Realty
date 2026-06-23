@@ -1,4 +1,4 @@
-import { FileText, Globe2, LayoutDashboard } from "lucide-react"
+import { FileText, Globe2, Inbox, LayoutDashboard } from "lucide-react"
 
 import type { NewBotStepKey, Page } from "./types"
 
@@ -14,6 +14,7 @@ export const contentTypeOptions = [
 export const navItems: Array<{ key: Page; label: string; icon: typeof FileText }> = [
   { key: "projects", label: "Projects", icon: LayoutDashboard },
   { key: "content", label: "Content", icon: FileText },
+  { key: "conversations", label: "Inbox", icon: Inbox },
   { key: "connect", label: "Connect", icon: Globe2 },
 ]
 
