@@ -457,14 +457,14 @@ export function ContentView({
       </div>
 
       <div className="min-h-0 flex-1">
-        <Card className="h-full min-h-0 shadow-none">
+        <Card className="h-full min-h-0 bg-muted shadow-none">
           <CardHeader className="shrink-0">
             <CardTitle>Content</CardTitle>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
               <Tabs className="shrink-0 data-horizontal:flex-row sm:w-80" value={statusFilter} onValueChange={(value) => setStatusFilter(value ?? "all")}>
-                <TabsList className="w-full" variant="default">
+                <TabsList className="w-full bg-foreground/5" variant="default">
                   <TabsTrigger value="all">All</TabsTrigger>
                   <TabsTrigger value="draft">Drafts</TabsTrigger>
                   <TabsTrigger value="published">Published</TabsTrigger>
@@ -543,17 +543,16 @@ export function ContentView({
                           const chatbotDraftItems = chatbotItems.filter((item) => item.status !== "published")
                           const chatbotCapabilities = getSelectedCapabilityLabels(chatbot.capabilities)
                           const isArchived = chatbot.status === "archived"
-                          const isSelected = chatbot.id === chatbotId
                           const isDrawerOpen = detailOpen && chatbot.id === chatbotId
                           return (
                             <TableRow
                               key={chatbot.id}
                               className={cn(
                                 "cursor-pointer",
-                                (isSelected || isDrawerOpen) && "bg-muted/50",
+                                isDrawerOpen && "bg-muted/50",
                                 !isDrawerOpen && "hover:bg-muted/40",
                               )}
-                              data-state={isSelected || isDrawerOpen ? "selected" : undefined}
+                              data-state={isDrawerOpen ? "selected" : undefined}
                               tabIndex={0}
                               onClick={() => openChatbotDetails(chatbot)}
                               onKeyDown={(event) => {
