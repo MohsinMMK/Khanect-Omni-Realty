@@ -4,16 +4,21 @@ import type { FastifyInstance } from "fastify"
 interface AdminRoutesOptions {
   store: Phase1aStore
   allowDevAdminStub: boolean
+  adminApiKey?: string
 }
 
 export function adminRoutes(options: AdminRoutesOptions) {
   return async function register(app: FastifyInstance) {
     app.addHook("preHandler", async (request, reply) => {
       if (!options.allowDevAdminStub) {
-        return reply.status(403).send({
+        if (isAdminAuthorized(request.headers, options.adminApiKey)) {
+          request.headers["x-khanect-admin-auth"] = "api-key"
+          return
+        }
+        return reply.status(401).send({
           error: {
-            code: "ADMIN_AUTH_NOT_CONFIGURED",
-            message: "Admin dev stub is disabled outside development. Configure production auth before using admin routes.",
+            code: "ADMIN_AUTH_REQUIRED",
+            message: "Admin API key is required.",
           },
         })
       }
@@ -23,16 +28,17 @@ export function adminRoutes(options: AdminRoutesOptions) {
 
     app.get("/admin/me", async () => {
       const admin = await options.store.getAdminContext()
+      const productionAuth = !options.allowDevAdminStub
       return {
         user: {
           id: admin.userId,
-          email: admin.email,
+          email: productionAuth ? "admin@khanect.local" : admin.email,
           roles: admin.roles,
-          authMode: admin.authMode,
-          productionAuth: admin.productionAuth,
+          authMode: productionAuth ? "api-key" : admin.authMode,
+          productionAuth,
         },
         tenant: { id: admin.tenantId },
-        warning: "Dev admin stub only. Not production authentication.",
+        warning: productionAuth ? undefined : "Dev admin stub only. Not production authentication.",
       }
     })
 
@@ -121,6 +127,14 @@ export function adminRoutes(options: AdminRoutesOptions) {
       })
     })
   }
+}
+
+function isAdminAuthorized(headers: Record<string, string | string[] | undefined>, adminApiKey: string | undefined) {
+  if (!adminApiKey) return false
+  const direct = headers["x-khanect-admin-api-key"]
+  if (direct === adminApiKey || (Array.isArray(direct) && direct.includes(adminApiKey))) return true
+  const authorization = headers.authorization
+  return authorization === `Bearer ${adminApiKey}`
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {

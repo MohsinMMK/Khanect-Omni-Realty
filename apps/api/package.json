@@ -7,6 +7,7 @@
     "prebuild": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build && pnpm --filter @workspace/db build",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/index.ts",
+    "dev:memory": "PLATFORM_STORE=memory AGNO_ENABLED=false tsx watch src/index.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "pretest": "pnpm --filter @workspace/config build && pnpm --filter @workspace/core build && pnpm --filter @workspace/db build",

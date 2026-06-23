@@ -16,6 +16,11 @@ x-app-environment: &app-environment
   CLAMAV_HOST: clamav
   CLAMAV_PORT: "3310"
   LOG_LEVEL: info
+  AGNO_ENABLED: "true"
+  AGNO_AGENT_URL: http://agno-agent:8000
+  AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
+  AGNO_MODEL: gpt-5-mini
+  AGNO_EMBEDDING_MODEL: text-embedding-3-small
 
 services:
   postgres:
@@ -37,6 +42,18 @@ services:
   clamav:
     image: clamav/clamav:stable
 
+  agno-agent:
+    build:
+      context: .
+      dockerfile: apps/agno-agent/Dockerfile
+    image: khanect-omni-realty-agno-agent:phase0
+    environment:
+      AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
+      AGNO_MODEL: gpt-5-mini
+      AGNO_EMBEDDING_MODEL: text-embedding-3-small
+    expose:
+      - "8000"
+
   app:
     build:
       context: .
@@ -50,6 +67,7 @@ services:
       - postgres
       - redis
       - clamav
+      - agno-agent
     volumes:
       - uploads-data:/app/uploads
 

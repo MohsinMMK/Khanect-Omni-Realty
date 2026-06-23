@@ -5,6 +5,7 @@ import { Pool, type PoolConfig } from "pg"
 import * as schema from "./schema.js"
 
 export * from "./phase1a.js"
+export * from "./platform.js"
 export { schema }
 export type AppDb = ReturnType<typeof createDbClient>
 

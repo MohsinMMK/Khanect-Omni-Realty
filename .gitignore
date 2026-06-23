@@ -19,6 +19,12 @@ dist-ssr
 # turbo
 .turbo
 
+# pnpm store
+.pnpm-store/
+
+# duplicate lowercase agents file (case-insensitive FS dup of AGENTS.md)
+agents.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -28,6 +34,10 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
+
+# Python
+__pycache__/
+*.pyc
 *.sw?
 
 # typescript

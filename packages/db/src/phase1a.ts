@@ -730,6 +730,8 @@ export function createDrizzlePhase1aStore(db: AppDb, pool: Pool): Phase1aStore {
         .values({
           id: createUuidV7(),
           tenantId: admin.tenantId,
+          projectId: sql`null`,
+          chatbotId: sql`null`,
           channel: "website",
           status: "open",
           actionTrace: { lab: true, authMode: "dev-stub" },

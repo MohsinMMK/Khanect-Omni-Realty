@@ -55,6 +55,56 @@ export const adminUserStub = pgTable(
   (table) => [uniqueIndex("admin_user_stub_email_unique").on(table.email)],
 )
 
+export const project = pgTable(
+  "project",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    domain: text("domain"),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("project_tenant_status_idx").on(table.tenantId, table.status),
+    uniqueIndex("project_tenant_domain_unique").on(table.tenantId, table.domain),
+  ],
+)
+
+export const chatbot = pgTable(
+  "chatbot",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    purpose: text("purpose").notNull().default(""),
+    capabilities: jsonb("capabilities")
+      .$type<{ faq: boolean; leadCapture: boolean; appointmentBooking: boolean }>()
+      .notNull()
+      .default({ faq: true, leadCapture: true, appointmentBooking: false }),
+    status: text("status").notNull().default("active"),
+    agentKey: text("agent_key").notNull(),
+    knowledgeNamespace: text("knowledge_namespace").notNull(),
+    runtimeStatus: text("runtime_status").notNull().default("ready"),
+    lastIndexedContentVersionId: uuid("last_indexed_content_version_id"),
+    lastSyncError: text("last_sync_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chatbot_tenant_project_idx").on(table.tenantId, table.projectId),
+    index("chatbot_tenant_status_idx").on(table.tenantId, table.status),
+  ],
+)
+
 export const contentItem = pgTable(
   "content_item",
   {
@@ -96,6 +146,31 @@ export const contentVersion = pgTable(
   (table) => [
     uniqueIndex("content_version_entity_version_unique").on(table.tenantId, table.entityType, table.entityId, table.versionNumber),
     index("content_version_entity_idx").on(table.tenantId, table.entityType, table.entityId),
+  ],
+)
+
+export const chatbotKnowledgeSource = pgTable(
+  "chatbot_knowledge_source",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => project.id, { onDelete: "cascade" }),
+    chatbotId: uuid("chatbot_id").references(() => chatbot.id, { onDelete: "cascade" }),
+    contentItemId: uuid("content_item_id")
+      .notNull()
+      .references(() => contentItem.id, { onDelete: "cascade" }),
+    sourceVersionId: uuid("source_version_id")
+      .notNull()
+      .references(() => contentVersion.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("indexed"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chatbot_knowledge_source_unique").on(table.tenantId, table.chatbotId, table.sourceVersionId),
+    index("chatbot_knowledge_source_chatbot_idx").on(table.tenantId, table.chatbotId),
   ],
 )
 
@@ -154,6 +229,59 @@ export const ragChunk = pgTable(
   ],
 )
 
+export const channelConnector = pgTable(
+  "channel_connector",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    chatbotId: uuid("chatbot_id")
+      .notNull()
+      .references(() => chatbot.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    status: text("status").notNull().default("not_configured"),
+    displayName: text("display_name").notNull(),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("channel_connector_chatbot_channel_unique").on(table.tenantId, table.chatbotId, table.channel),
+    index("channel_connector_project_idx").on(table.tenantId, table.projectId),
+  ],
+)
+
+export const chatbotDeployment = pgTable(
+  "chatbot_deployment",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    chatbotId: uuid("chatbot_id")
+      .notNull()
+      .references(() => chatbot.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull().default("website"),
+    publicKey: text("public_key").notNull(),
+    allowedDomains: text("allowed_domains").array().notNull().default(sql`ARRAY[]::text[]`),
+    installStatus: text("install_status").notNull().default("not_installed"),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chatbot_deployment_public_key_unique").on(table.publicKey),
+    uniqueIndex("chatbot_deployment_chatbot_channel_unique").on(table.tenantId, table.chatbotId, table.channel),
+  ],
+)
+
 export const channelConversation = pgTable(
   "channel_conversation",
   {
@@ -161,6 +289,12 @@ export const channelConversation = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenant.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    chatbotId: uuid("chatbot_id")
+      .notNull()
+      .references(() => chatbot.id, { onDelete: "cascade" }),
     channel: text("channel").notNull().default("website"),
     externalThreadId: text("external_thread_id"),
     status: text("status").notNull().default("open"),
@@ -170,7 +304,11 @@ export const channelConversation = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("channel_conversation_tenant_status_idx").on(table.tenantId, table.status)],
+  (table) => [
+    index("channel_conversation_tenant_status_idx").on(table.tenantId, table.status),
+    index("channel_conversation_chatbot_idx").on(table.tenantId, table.chatbotId, table.updatedAt),
+    uniqueIndex("channel_conversation_external_thread_unique").on(table.tenantId, table.chatbotId, table.channel, table.externalThreadId),
+  ],
 )
 
 export const channelMessage = pgTable(

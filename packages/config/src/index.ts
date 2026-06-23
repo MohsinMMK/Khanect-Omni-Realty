@@ -44,6 +44,7 @@ const envSchema = z.object({
   BETTER_AUTH_URL: requiredUrl("http://localhost:3000"),
   BETTER_AUTH_SECRET: z.string().default(phase0AuthSecret),
   ENCRYPTION_KEY: z.string().default(phase0EncryptionKey),
+  ADMIN_API_KEY: optionalString,
 
   TWENTY_API_URL: optionalString,
   TWENTY_API_KEY: optionalString,
@@ -72,8 +73,15 @@ const envSchema = z.object({
   EMBEDDING_MODEL: z.string().default("BAAI/bge-m3"),
   LLM_PROVIDER: z.string().default("ollama"),
   LLM_BASE_URL: requiredUrl("http://localhost:11434"),
+  LLM_API_KEY: optionalString,
   LLM_MODEL: z.string().default("qwen3"),
   LOCAL_AI_ENABLED: booleanFromString,
+  AGNO_ENABLED: booleanFromString,
+  AGNO_AGENT_URL: requiredUrl("http://localhost:8000"),
+  AGNO_SERVICE_TOKEN: z.string().default("phase0_dev_only_agno_service_token"),
+  AGNO_MODEL: z.string().default("gpt-5-mini"),
+  AGNO_EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  PLATFORM_STORE: z.enum(["postgres", "memory"]).default("postgres"),
 
   UPLOAD_DIR: z.string().default("/app/uploads"),
   UPLOAD_TMP_DIR: z.string().default("/app/uploads/tmp"),
@@ -119,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
       url: parsed.BETTER_AUTH_URL,
       secret: parsed.BETTER_AUTH_SECRET,
       encryptionKey: parsed.ENCRYPTION_KEY,
+      adminApiKey: parsed.ADMIN_API_KEY,
     },
     twenty: {
       apiUrl: parsed.TWENTY_API_URL,
@@ -155,8 +164,19 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
       embeddingModel: parsed.EMBEDDING_MODEL,
       llmProvider: parsed.LLM_PROVIDER,
       llmBaseUrl: parsed.LLM_BASE_URL,
+      llmApiKey: parsed.LLM_API_KEY,
       llmModel: parsed.LLM_MODEL,
       localAiEnabled: parsed.LOCAL_AI_ENABLED,
+    },
+    agno: {
+      enabled: parsed.AGNO_ENABLED,
+      agentUrl: parsed.AGNO_AGENT_URL,
+      serviceToken: parsed.AGNO_SERVICE_TOKEN,
+      model: parsed.AGNO_MODEL,
+      embeddingModel: parsed.AGNO_EMBEDDING_MODEL,
+    },
+    platform: {
+      store: parsed.PLATFORM_STORE,
     },
     map: {
       renderer: parsed.MAP_RENDERER,
@@ -191,6 +211,7 @@ function enforceProductionConfig(parsed: z.output<typeof envSchema>) {
 
   requireSecret(parsed.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET", phase0AuthSecret, issues)
   requireSecret(parsed.ENCRYPTION_KEY, "ENCRYPTION_KEY", phase0EncryptionKey, issues)
+  requireSecret(parsed.ADMIN_API_KEY ?? "", "ADMIN_API_KEY", "", issues)
 
   if (parsed.WHATSAPP_ENABLED) {
     requirePresent(parsed.META_WEBHOOK_VERIFY_TOKEN, "META_WEBHOOK_VERIFY_TOKEN", issues)
@@ -203,6 +224,14 @@ function enforceProductionConfig(parsed: z.output<typeof envSchema>) {
     requirePresent(parsed.META_WEBHOOK_VERIFY_TOKEN, "META_WEBHOOK_VERIFY_TOKEN", issues)
     requirePresent(parsed.INSTAGRAM_BUSINESS_ACCOUNT_ID, "INSTAGRAM_BUSINESS_ACCOUNT_ID", issues)
     requirePresent(parsed.INSTAGRAM_ACCESS_TOKEN, "INSTAGRAM_ACCESS_TOKEN", issues)
+  }
+
+  if (parsed.AGNO_ENABLED) {
+    requireSecret(parsed.AGNO_SERVICE_TOKEN, "AGNO_SERVICE_TOKEN", "phase0_dev_only_agno_service_token", issues)
+  }
+
+  if (parsed.PLATFORM_STORE === "memory") {
+    issues.push("PLATFORM_STORE=memory is not allowed in production")
   }
 
   if (parsed.GMAIL_SEND_ENABLED || parsed.GOOGLE_CALENDAR_ENABLED) {

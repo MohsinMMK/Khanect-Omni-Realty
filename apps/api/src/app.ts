@@ -1,6 +1,14 @@
 import fastifyStatic from "@fastify/static"
 import { loadConfig, type AppConfig } from "@workspace/config"
-import { createDbClient, createDrizzlePhase1aStore, createPgPool, type Phase1aStore } from "@workspace/db"
+import {
+  createDbClient,
+  createDrizzleProductionChatbotStore,
+  createDrizzlePhase1aStore,
+  createInMemoryProductionChatbotStore,
+  createPgPool,
+  type Phase1aStore,
+  type ProductionChatbotStore,
+} from "@workspace/db"
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify"
 import { existsSync } from "node:fs"
 import path from "node:path"
@@ -9,6 +17,9 @@ import { randomUUID } from "node:crypto"
 import { adminRoutes } from "./routes/admin.js"
 import { dependencyHealthRoutes, type ClamavHealthCheck } from "./routes/dependency-health.js"
 import { healthRoutes } from "./routes/health.js"
+import { platformRoutes } from "./routes/platform.js"
+import { createConfiguredAnswerProvider } from "./llm.js"
+import { createAgnoAnswerProvider } from "./agno.js"
 
 export interface StaticAssetsOptions {
   enabled?: boolean
@@ -23,6 +34,13 @@ export interface BuildApiOptions {
   staticAssets?: StaticAssetsOptions
   clamavHealthCheck?: ClamavHealthCheck
   phase1aStore?: Phase1aStore
+  productionChatbotStore?: ProductionChatbotStore
+  websiteInstallFetcher?: typeof fetch
+  widgetRateLimit?: {
+    maxMessages: number
+    windowMs: number
+    now?: () => number
+  }
 }
 
 export async function buildApi(options: BuildApiOptions = {}) {
@@ -51,15 +69,33 @@ export async function buildApi(options: BuildApiOptions = {}) {
   })
 
   const phase1aStore = options.phase1aStore ?? createDefaultPhase1aStore()
+  const productionChatbotStore = options.productionChatbotStore ?? createDefaultProductionChatbotStore(config, {
+    answerProvider: createAgnoAnswerProvider(config) ?? createConfiguredAnswerProvider(config),
+  })
   app.addHook("onClose", async () => {
     await phase1aStore.close?.()
+    await productionChatbotStore.close?.()
   })
 
   await app.register(healthRoutes, { prefix: "/api/v1" })
   await app.register(dependencyHealthRoutes({ config, clamavHealthCheck: options.clamavHealthCheck }), {
     prefix: "/api/v1",
   })
-  await app.register(adminRoutes({ store: phase1aStore, allowDevAdminStub: config.nodeEnv !== "production" }), {
+  await app.register(adminRoutes({
+    store: phase1aStore,
+    allowDevAdminStub: config.nodeEnv !== "production",
+    adminApiKey: config.auth.adminApiKey,
+  }), {
+    prefix: "/api/v1",
+  })
+  await app.register(platformRoutes({
+    store: productionChatbotStore,
+    allowDevAdminStub: config.nodeEnv !== "production",
+    adminApiKey: config.auth.adminApiKey,
+    agnoServiceToken: config.agno.serviceToken,
+    websiteInstallFetcher: options.websiteInstallFetcher,
+    widgetRateLimit: options.widgetRateLimit,
+  }), {
     prefix: "/api/v1",
   })
   await registerStaticAssets(app, config, options.staticAssets)
@@ -71,6 +107,21 @@ function createDefaultPhase1aStore() {
   const pool = createPgPool()
   const db = createDbClient(pool)
   const store = createDrizzlePhase1aStore(db, pool)
+  return {
+    ...store,
+    close: async () => {
+      await pool.end()
+    },
+  }
+}
+
+function createDefaultProductionChatbotStore(config: AppConfig, options: Parameters<typeof createInMemoryProductionChatbotStore>[0]) {
+  if (config.platform.store === "memory") {
+    return createInMemoryProductionChatbotStore(options)
+  }
+  const pool = createPgPool()
+  const db = createDbClient(pool)
+  const store = createDrizzleProductionChatbotStore(db, pool, options)
   return {
     ...store,
     close: async () => {

@@ -36,14 +36,47 @@ describe("Phase 1A admin RAG loop", () => {
         NODE_ENV: "production",
         BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
         ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
+        ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
       }),
     })
 
     const response = await app.inject({ method: "POST", url: "/api/v1/admin/content", payload: { title: "Blocked", body: "Blocked" } })
 
     await app.close()
-    expect(response.statusCode).toBe(403)
-    expect(response.json()).toMatchObject({ error: { code: "ADMIN_AUTH_NOT_CONFIGURED" } })
+    expect(response.statusCode).toBe(401)
+    expect(response.json()).toMatchObject({ error: { code: "ADMIN_AUTH_REQUIRED" } })
+  })
+
+  it("allows production admin requests with the configured api key", async () => {
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      phase1aStore: createInMemoryPhase1aStore(),
+      config: loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
+        ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
+        ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+      }),
+    })
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/content",
+      headers: { "x-khanect-admin-api-key": "wrong_key" },
+      payload: { title: "Blocked", body: "Blocked" },
+    })
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/content",
+      headers: { "x-khanect-admin-api-key": "real_admin_api_key_value_with_more_than_32_chars" },
+      payload: { title: "Allowed", body: "Allowed production admin request." },
+    })
+
+    await app.close()
+    expect(rejected.statusCode).toBe(401)
+    expect(accepted.statusCode).toBe(201)
+    expect(accepted.json().item).toMatchObject({ title: "Allowed" })
   })
 
   it("publishes content, indexes chunks, searches RAG, and answers with sources", async () => {
