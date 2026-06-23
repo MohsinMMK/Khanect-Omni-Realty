@@ -33,7 +33,6 @@ import { cn } from "@workspace/ui/lib/utils"
 import {
   Archive,
   ArchiveRestore,
-  Check,
   CheckCircle2,
   FilePlus2,
   MoreHorizontal,
@@ -46,11 +45,11 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { api, getErrorMessage } from "@/lib/api"
-import { getSelectedCapabilityLabels } from "@/lib/capabilities"
+import { capabilitiesToSelection, capabilityPayload, getSelectedCapabilityLabels } from "@/lib/capabilities"
 import { cleanFileTitle, getContentDisplayTitle, getContentSourceHost, getContentSummary, inferContentType } from "@/lib/content-helpers"
 import { AlertCallout, EmptyState } from "./components"
 import { contentTypeOptions, sampleContent } from "./constants"
-import { NewBotSetupButton } from "./projects-view"
+import { CapabilityPicker, NewBotSetupButton } from "./projects-view"
 import type { ChatAnswer, Chatbot, ContentItem, KnowledgeSource, Project } from "./types"
 
 const SKELETON_ROW_COUNT = 5
@@ -115,6 +114,8 @@ export function ContentView({
   const [detailTestMessage, setDetailTestMessage] = useState("What should this chatbot answer?")
   const [detailAnswer, setDetailAnswer] = useState<ChatAnswer | null>(null)
   const [detailTesting, setDetailTesting] = useState(false)
+  const [detailForm, setDetailForm] = useState({ name: "", purpose: "", capabilities: [] as string[] })
+  const [detailSaving, setDetailSaving] = useState(false)
   const [confirmingChatbotAction, setConfirmingChatbotAction] = useState<{ type: "archive" | "unarchive" | "delete"; chatbot: Chatbot } | null>(null)
   const [form, setForm] = useState({ title: "", body: "", contentType: "general" })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -122,7 +123,6 @@ export function ContentView({
   const searchOpen = searchExpanded || query.length > 0
 
   const selectedChatbot = chatbots.find((chatbot) => chatbot.id === chatbotId) ?? null
-  const selectedCapabilities = selectedChatbot ? getSelectedCapabilityLabels(selectedChatbot.capabilities) : []
   const selectedItems = contentByChatbotId[chatbotId] ?? items
   const visibleChatbots = chatbots.filter((chatbot) => {
     const chatbotItems = chatbot.id === chatbotId ? selectedItems : contentByChatbotId[chatbot.id] ?? []
@@ -230,6 +230,49 @@ export function ContentView({
     setDetailOpen(true)
     setDetailAnswer(null)
     setDetailTestMessage(item?.title ?? `What can ${chatbot.name} help with?`)
+    setDetailForm({
+      name: chatbot.name,
+      purpose: chatbot.purpose,
+      capabilities: capabilitiesToSelection(chatbot.capabilities),
+    })
+  }
+
+  const detailChatbot = chatbots.find((chatbot) => chatbot.id === chatbotId) ?? null
+  const detailFormReady =
+    detailForm.name.trim().length > 0 &&
+    detailForm.purpose.trim().length > 0 &&
+    detailForm.capabilities.length > 0
+  const detailFormDirty =
+    detailChatbot !== null &&
+    (detailForm.name.trim() !== detailChatbot.name ||
+      detailForm.purpose.trim() !== detailChatbot.purpose ||
+      JSON.stringify([...detailForm.capabilities].sort()) !== JSON.stringify(capabilitiesToSelection(detailChatbot.capabilities).sort()))
+
+  async function saveChatbotDetails() {
+    if (!detailChatbot || !detailFormReady || detailChatbot.status === "archived") return
+    setDetailSaving(true)
+    setError("")
+    try {
+      const response = await api<{ chatbot: Chatbot }>(`/admin/chatbots/${detailChatbot.id}`, {
+        method: "PATCH",
+        body: {
+          name: detailForm.name.trim(),
+          purpose: detailForm.purpose.trim(),
+          capabilities: capabilityPayload(detailForm.capabilities),
+        },
+      })
+      onChatbotUpdated(response.chatbot)
+      setDetailForm({
+        name: response.chatbot.name,
+        purpose: response.chatbot.purpose,
+        capabilities: capabilitiesToSelection(response.chatbot.capabilities),
+      })
+      toast.success("Chatbot updated")
+    } catch (apiError) {
+      setError(getErrorMessage(apiError))
+    } finally {
+      setDetailSaving(false)
+    }
   }
 
   function closeEditor() {
@@ -651,39 +694,43 @@ export function ContentView({
       <Drawer direction="right" open={detailOpen} onOpenChange={(open) => { setDetailOpen(open); if (!open) setDetailItemId(null) }}>
         <DrawerContent className="data-[vaul-drawer-direction=right]:w-[min(980px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-none">
           <DrawerHeader>
-            <DrawerTitle>{selectedChatbot?.name ?? "Chatbot details"}</DrawerTitle>
-            <DrawerDescription className="sr-only">Chatbot details, content structure, and chatbot test.</DrawerDescription>
+            <DrawerTitle>{detailForm.name.trim() || detailChatbot?.name || "Chatbot details"}</DrawerTitle>
+            <DrawerDescription className="sr-only">Edit chatbot setup, manage content, and test responses.</DrawerDescription>
           </DrawerHeader>
-          {selectedChatbot && (
+          {detailChatbot && (
             <div className="grid min-h-0 flex-1 gap-5 overflow-hidden px-4 pb-4 lg:grid-cols-2">
               <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
-                  <div className="font-heading text-base font-medium">Chatbot information</div>
+                  <div className="font-heading text-base font-medium">Chatbot setup</div>
                   <FieldGroup>
-                    <Field>
+                    <Field data-disabled={detailChatbot.status === "archived"}>
                       <FieldLabel>Name</FieldLabel>
-                      <Input readOnly value={selectedChatbot.name} />
+                      <Input
+                        placeholder="Website assistant"
+                        readOnly={detailChatbot.status === "archived"}
+                        value={detailForm.name}
+                        onChange={(event) => setDetailForm((current) => ({ ...current, name: event.target.value }))}
+                      />
                     </Field>
-                    <Field>
+                    <Field data-disabled={detailChatbot.status === "archived"}>
                       <FieldLabel>Purpose</FieldLabel>
-                      <Textarea readOnly className="min-h-24" value={selectedChatbot.purpose} />
+                      <Textarea
+                        readOnly={detailChatbot.status === "archived"}
+                        className="min-h-24"
+                        placeholder="Answer approved questions from website visitors"
+                        value={detailForm.purpose}
+                        onChange={(event) => setDetailForm((current) => ({ ...current, purpose: event.target.value }))}
+                      />
                     </Field>
-                    <Field>
-                      <FieldLabel>Capabilities</FieldLabel>
-                      <div className="grid grid-cols-2 gap-2">
-                        {selectedCapabilities.length > 0 ? (
-                          selectedCapabilities.map((capability) => (
-                            <Badge key={capability} className="justify-start" variant="outline">
-                              <Check data-icon="inline-start" />
-                              {capability}
-                            </Badge>
-                          ))
-                        ) : (
-                          <Badge className="justify-start" variant="outline">No capabilities selected</Badge>
-                        )}
-                      </div>
-                    </Field>
+                    <CapabilityPicker
+                      disabled={detailChatbot.status === "archived"}
+                      value={detailForm.capabilities}
+                      onChange={(capabilities) => setDetailForm((current) => ({ ...current, capabilities }))}
+                    />
                   </FieldGroup>
+                  {detailChatbot.status === "archived" && (
+                    <p className="text-sm text-muted-foreground">Unarchive this chatbot to edit its setup.</p>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
@@ -763,6 +810,17 @@ export function ContentView({
                 </div>
               </div>
             </div>
+          )}
+          {detailChatbot && (
+            <DrawerFooter className="flex-row items-center justify-between border-t">
+              <Button variant="outline" onClick={() => setDetailOpen(false)}>Close</Button>
+              <Button
+                disabled={!detailFormReady || !detailFormDirty || detailSaving || detailChatbot.status === "archived"}
+                onClick={() => void saveChatbotDetails()}
+              >
+                {detailSaving ? "Saving..." : "Save changes"}
+              </Button>
+            </DrawerFooter>
           )}
         </DrawerContent>
       </Drawer>

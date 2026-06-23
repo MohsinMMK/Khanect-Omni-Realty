@@ -21,3 +21,9 @@ export function getSelectedCapabilityLabels(capabilities: ChatbotCapabilities) {
     .filter((option) => Boolean(capabilities[option.value as keyof ChatbotCapabilities]))
     .map((option) => option.label)
 }
+
+export function capabilitiesToSelection(capabilities: ChatbotCapabilities) {
+  return capabilityOptions
+    .filter((option) => capabilities[option.value as keyof ChatbotCapabilities])
+    .map((option) => option.value)
+}

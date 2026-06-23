@@ -863,7 +863,7 @@ function NewBotStepRail({
   )
 }
 
-function CapabilityPicker({ disabled = false, value, onChange }: { disabled?: boolean; value: string[]; onChange: (value: string[]) => void }) {
+export function CapabilityPicker({ disabled = false, value, onChange }: { disabled?: boolean; value: string[]; onChange: (value: string[]) => void }) {
   return (
     <Field>
       <FieldLabel>Capabilities</FieldLabel>

@@ -162,6 +162,27 @@ describe("Production website chatbot platform", () => {
     const faqBot = faqBotResponse.json().chatbot
     const appointmentBot = appointmentBotResponse.json().chatbot
 
+    const updateResponse = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/chatbots/${faqBot.id}`,
+      payload: {
+        name: "Updated FAQ bot",
+        purpose: "Answer updated property questions",
+        capabilities: { faq: true, leadCapture: false, appointmentBooking: false, propertyRecommendations: true },
+      },
+    })
+    expect(updateResponse.statusCode).toBe(200)
+    expect(updateResponse.json().chatbot).toMatchObject({
+      name: "Updated FAQ bot",
+      purpose: "Answer updated property questions",
+      capabilities: {
+        faq: true,
+        leadCapture: false,
+        appointmentBooking: false,
+        propertyRecommendations: true,
+      },
+    })
+
     const contentResponse = await app.inject({
       method: "POST",
       url: `/api/v1/admin/chatbots/${faqBot.id}/content`,

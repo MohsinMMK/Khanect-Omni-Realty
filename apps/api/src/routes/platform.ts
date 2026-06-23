@@ -151,6 +151,25 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       return { chatbot }
     })
 
+    app.patch("/admin/chatbots/:chatbotId", async (request, reply) => {
+      const { chatbotId } = request.params as { chatbotId: string }
+      const body = request.body as Partial<{
+        name: string
+        purpose: string
+        capabilities: { faq?: boolean; leadCapture?: boolean; appointmentBooking?: boolean; propertyRecommendations?: boolean }
+      }>
+      if (body.name !== undefined && !body.name.trim()) {
+        return reply.status(400).send({ error: { code: "VALIDATION_ERROR", message: "name cannot be empty" } })
+      }
+      const chatbot = await options.store.updateChatbot(chatbotId, {
+        name: body.name?.trim(),
+        purpose: body.purpose,
+        capabilities: body.capabilities,
+      })
+      if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
+      return { chatbot }
+    })
+
     app.post("/admin/chatbots/:chatbotId/archive", async (request, reply) => {
       const { chatbotId } = request.params as { chatbotId: string }
       const chatbot = await options.store.archiveChatbot(chatbotId)

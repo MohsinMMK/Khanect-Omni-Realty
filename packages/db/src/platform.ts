@@ -185,6 +185,14 @@ export interface ProductionChatbotStore {
     capabilities?: Partial<ChatbotCapabilitiesDto>
   }): Promise<ChatbotDto | null>
   getChatbot(id: string): Promise<ChatbotDto | null>
+  updateChatbot(
+    id: string,
+    input: {
+      name?: string
+      purpose?: string
+      capabilities?: Partial<ChatbotCapabilitiesDto>
+    },
+  ): Promise<ChatbotDto | null>
   archiveChatbot(id: string): Promise<ChatbotDto | null>
   unarchiveChatbot(id: string): Promise<ChatbotDto | null>
   deleteChatbot(id: string): Promise<ChatbotDto | null>
@@ -342,6 +350,21 @@ export function createInMemoryProductionChatbotStore(options: { answerProvider?:
     },
     async getChatbot(id) {
       return chatbots.get(id) ?? null
+    },
+    async updateChatbot(id, input) {
+      const existing = chatbots.get(id)
+      if (!existing || existing.status === "archived") return null
+      const name = input.name?.trim() ?? existing.name
+      if (!name) return null
+      const next: ChatbotDto = {
+        ...existing,
+        name,
+        purpose: input.purpose !== undefined ? input.purpose.trim() : existing.purpose,
+        capabilities: input.capabilities !== undefined ? normalizeCapabilities(input.capabilities) : existing.capabilities,
+        updatedAt: now(),
+      }
+      chatbots.set(id, next)
+      return next
     },
     async archiveChatbot(id) {
       const existing = chatbots.get(id)
@@ -734,6 +757,24 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
     async getChatbot(id) {
       const tenantId = await ensureTenantId()
       const row = await db.query.chatbot.findFirst({ where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, id)) })
+      return row ? mapChatbot(row) : null
+    },
+    async updateChatbot(id, input) {
+      const tenantId = await ensureTenantId()
+      const existing = await db.query.chatbot.findFirst({ where: and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, id)) })
+      if (!existing || existing.status === "archived") return null
+      const name = input.name?.trim() ?? existing.name
+      if (!name) return null
+      const [row] = await db
+        .update(chatbot)
+        .set({
+          name,
+          purpose: input.purpose !== undefined ? input.purpose.trim() : existing.purpose,
+          capabilities: input.capabilities !== undefined ? normalizeCapabilities(input.capabilities) : existing.capabilities,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, id)))
+        .returning()
       return row ? mapChatbot(row) : null
     },
     async archiveChatbot(id) {
