@@ -1,5 +1,7 @@
 # Phase 1A Worker Handoff
 
+> **Historical artifact.** See [`phase1/README.md`](./README.md) and [`AGENTS.md`](../AGENTS.md) for current worker/runtime behavior.
+
 ## Changed files
 
 - `.gitignore`

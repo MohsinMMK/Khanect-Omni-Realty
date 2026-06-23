@@ -15,21 +15,22 @@
     "@workspace/ui": "workspace:*",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
     "@eslint/js": "^10",
-    "@tailwindcss/vite": "^4",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^24",
-    "@types/react": "^19",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
-    "eslint": "^10",
+    "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17",
     "typescript": "~6",
-    "typescript-eslint": "^8",
+    "typescript-eslint": "^8.61.1",
     "vite": "^8"
   }
 }

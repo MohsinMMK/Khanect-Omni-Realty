@@ -1,5 +1,7 @@
 # Phase 1A Context Builder
 
+> **Historical artifact.** See [`phase1/README.md`](./README.md) and [`README.md`](../README.md) for current repo state.
+
 Task: context only for Phase 1A candidate scope. Requested output file is only file written. No product/source files edited.
 
 ## Scope boundary

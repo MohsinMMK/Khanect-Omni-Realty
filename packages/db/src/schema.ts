@@ -87,9 +87,19 @@ export const chatbot = pgTable(
     name: text("name").notNull(),
     purpose: text("purpose").notNull().default(""),
     capabilities: jsonb("capabilities")
-      .$type<{ faq: boolean; leadCapture: boolean; appointmentBooking: boolean }>()
+      .$type<{
+        faq: boolean
+        leadCapture: boolean
+        appointmentBooking: boolean
+        propertyRecommendations: boolean
+      }>()
       .notNull()
-      .default({ faq: true, leadCapture: true, appointmentBooking: false }),
+      .default({
+        faq: true,
+        leadCapture: true,
+        appointmentBooking: false,
+        propertyRecommendations: false,
+      }),
     status: text("status").notNull().default("active"),
     agentKey: text("agent_key").notNull(),
     knowledgeNamespace: text("knowledge_namespace").notNull(),

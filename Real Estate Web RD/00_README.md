@@ -40,12 +40,25 @@ Owner context: Khanect AI, India-first delivery, high-revenue real-estate busine
 16. `16_CODEX_IMPLEMENTATION_PROMPT.md` - Agent handoff prompt for implementation.
 17. `17_DECISIONS_LOCK.md` - Current locked technical decisions; wins over conflicting older notes.
 
+## Implementation status vs this pack (2026-06-23)
+
+This folder is the **research and V1 blueprint**, not a live mirror of the monorepo. The implemented Phase 0/1A baseline differs in several places:
+
+| Blueprint artifact | Implemented repo |
+|---|---|
+| `docker-compose.skeleton.yml` (pg18, Caddy, Twenty, Ollama, …) | `docker-compose.phase0.yml` (pg16, api, worker, agno-agent, ClamAV) |
+| `schema.sql` (listings, leads, bookings, analytics, …) | Drizzle schema with 14 platform tables (`packages/db/src/schema.ts`) |
+| Full public site + CMS APIs in OpenAPI | Phase 1A lab + **production platform** routes implemented; many public/marketing paths remain blueprint-only |
+| Single admin content desk | Web UI uses per-chatbot platform content under Projects/Content/Connect |
+
+Operational source of truth: repository root [`README.md`](../README.md) and [`AGENTS.md`](../AGENTS.md).
+
 ## Technical artifacts
 
-- `docker-compose.skeleton.yml` - V1 service blueprint.
-- `env.example` - Environment variable skeleton.
-- `schema.sql` - Initial relational/vector schema sketch.
-- `api_contracts.openapi.yaml` - Public API contract sketch.
+- `docker-compose.skeleton.yml` - V1 service blueprint (not the running compose file).
+- `env.example` - Environment variable reference (synced with `packages/config` for implemented vars).
+- `schema.sql` - Initial relational/vector schema sketch (includes future tables).
+- `api_contracts.openapi.yaml` - API contract: Phase 1A + implemented platform/widget paths; other paths are forward-looking.
 
 ## Recommended reading order
 

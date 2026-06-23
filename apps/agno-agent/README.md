@@ -15,3 +15,11 @@ AGNO_SERVICE_TOKEN=phase0_dev_only_agno_service_token
 ```
 
 The service returns grounded answers from approved source excerpts in development. When Agno model credentials are configured, the same endpoint can build an Agno agent per chatbot from the request metadata.
+
+Optional live-agent mode (agno-agent env only, not parsed by `@workspace/config`):
+
+```bash
+AGNO_USE_LIVE_AGENT=1
+```
+
+When set to any truthy value, `/v1/chatbots/run` prefers the live Agno agent path instead of the deterministic excerpt fallback.

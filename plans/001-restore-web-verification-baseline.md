@@ -7,6 +7,7 @@
 
 ## Status
 
+- **Execution status**: DONE (2026-06-23, post-upgrade baseline)
 - **Priority**: P1
 - **Effort**: S
 - **Risk**: LOW

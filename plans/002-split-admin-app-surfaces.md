@@ -13,6 +13,7 @@
 - **Depends on**: `plans/001-restore-web-verification-baseline.md`
 - **Category**: tech-debt
 - **Planned at**: commit `0804202`, 2026-06-22
+- **DONE** (2026-06-23): Split live `App.tsx` (~2,567 lines) into `lib/*`, `features/admin/*`, and a ~280-line shell. Current pages: projects, content, connect, settings.
 
 ## Why this matters
 

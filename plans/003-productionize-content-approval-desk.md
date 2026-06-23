@@ -13,6 +13,7 @@
 - **Depends on**: `plans/001-restore-web-verification-baseline.md`, `plans/002-split-admin-app-surfaces.md`
 - **Category**: direction
 - **Planned at**: commit `0804202`, 2026-06-22
+- **DONE** (2026-06-23): `ContentView` in `features/admin/content-view.tsx` uses Table + Skeleton loading, Sonner toasts for success flows, and keeps Drawer editors/details with `direction="right"`. `<Toaster />` added in `main.tsx`.
 
 ## Why this matters
 

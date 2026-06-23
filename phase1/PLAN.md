@@ -1,5 +1,7 @@
 # Phase 1A Plan: Admin RAG Chat Lab
 
+> **Historical artifact.** Phase 1A APIs are implemented; the web UI now uses the production platform routes. See [`phase1/README.md`](./README.md), [`README.md`](../README.md), and [`AGENTS.md`](../AGENTS.md).
+
 ## Locked choices
 
 - Plan first; no Phase 1A code yet.

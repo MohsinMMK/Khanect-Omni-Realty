@@ -1,6 +1,8 @@
 # Phase 0 Context Builder
 
-Scope: context only. No project/source files edited. Source of truth: `Real Estate Web RD/*`, with `17_DECISIONS_LOCK.md` winning conflicts.
+> **Historical artifact (pre-implementation).** This file describes the repo before Phase 0 landed. For current layout, versions, and commands, use [`README.md`](../README.md) and [`AGENTS.md`](../AGENTS.md). See [`phase0/README.md`](./README.md).
+
+Scope: context only. No project/source files edited. Source of truth at write time: `Real Estate Web RD/*`, with `17_DECISIONS_LOCK.md` winning conflicts.
 
 ## Current repo structure relevant to Phase 0
 

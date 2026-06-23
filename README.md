@@ -6,7 +6,7 @@ pnpm + Turbo monorepo. TypeScript Node services, a Vite React admin app, a Pytho
 
 > Status: Phase 0 / 1A. Admin auth is a dev stub (`allowDevAdminStub`) outside production; production requires `ADMIN_API_KEY`. Embeddings default to a deterministic `stub/hash-v1` 1024-dim vector until a real embedding model is wired.
 >
-> All dependencies are pinned to the latest production-ready versions (pnpm 11, Node 24 LTS, Fastify 5, Vite 8, Tailwind v4, React 19, Drizzle 0.45, BullMQ 5, agno 2.6.18, FastAPI 0.138, pytest 9). See `AGENTS.md` for the tech stack and `pnpm-workspace.yaml` `allowBuilds` for native build approvals.
+> Dependencies target latest production-ready floors (pnpm 11, Node 24 LTS, Fastify 5, Vite 8, Tailwind v4, React 19, Drizzle 0.45, BullMQ 5, agno 2.6.18, FastAPI 0.138, pytest 9). Workspace `package.json` files use `^` ranges; `pnpm-lock.yaml` and `uv.lock` pin resolved versions. See `AGENTS.md` for the tech stack and `pnpm-workspace.yaml` `allowBuilds` for native build approvals.
 
 ## Repository layout
 
@@ -31,16 +31,18 @@ Dockerfile        Multi-stage Node image (api + worker)
 ## Apps & packages
 
 ### `apps/web`
-Vite React SPA. Imports UI from `@workspace/ui`. Currently a single `App.tsx` shell (router + dashboard + content desk + RAG view + chat lab + connectors). Plans 001-004 cover splitting it into modules and productionizing the content desk.
+Vite React SPA. Imports UI from `@workspace/ui`. `App.tsx` is the shell (~330 lines); admin surfaces live under `apps/web/src/features/admin/` (**Projects**, **Content**, **Connect**, **Settings**). The web app calls **platform** admin routes only (`/admin/projects`, `/admin/chatbots/*`); Phase 1A lab routes exist in the API but are not wired in the UI. Content desk uses Table, Skeleton, Sonner, and right-side Drawers.
 
 ### `apps/api`
 Fastify service, base path `/api/v1`. Route groups:
 - `health` — `/health`, plus dependency health `/health/clamav`.
-- `admin` — Phase 1A admin RAG lab: `/admin/me`, `/admin/content` (CRUD + `/publish`), `/admin/rag/documents`, `/admin/rag/documents/:id/chunks`, `/admin/chat` session/message loop.
-- `platform` — Production chatbot platform: projects, chatbots, per-chatbot content + knowledge + connectors + test-message, conversations, and public widget endpoints `/widget/:publicKey/config`, `/widget/:publicKey/widget.js`, `/widget/:publicKey/message` (CORS, origin allow-list, rate limit).
+- `admin` — Phase 1A admin RAG lab (API/tests; not used by the web UI): `/admin/me`, `/admin/content` (CRUD + `/publish`), `/admin/rag/documents`, `/admin/rag/documents/:id/chunks`, `/admin/chat-lab/sessions`, `/admin/chat-lab/test-message`.
+- `platform` — Production chatbot platform (primary admin + widget surface): projects, chatbots, per-chatbot content + knowledge + connectors + test-message, conversations, and public widget endpoints `/widget/:publicKey/config`, `/widget/:publicKey/widget.js`, `/widget/:publicKey/message` (CORS, origin allow-list, rate limit).
 - Auth: dev stub when `NODE_ENV !== production`; otherwise `x-khanect-admin-api-key` header or `Authorization: Bearer <key>`. Widget endpoints are public but origin-gated.
 
 Answer providers (selected in `buildApi`): Agno agent (`AGNO_ENABLED`) → configured OpenAI-compatible LLM (`LLM_API_KEY`) → deterministic grounded fallback from approved sources.
+
+**Dual admin API layers:** Phase 1A (`/admin/content`, `/admin/rag`, `/admin/chat-lab`) and the production platform (`/admin/projects`, `/admin/chatbots/*`, `/widget/*`) share Postgres tables but expose different route groups. The web UI uses platform routes only. The worker `rag.index` queue still calls Phase 1A `reindexContent`.
 
 ### `apps/worker`
 BullMQ worker runtime (`apps/worker/src/index.ts` → `runtime.ts`). Graceful SIGINT/SIGTERM shutdown.
@@ -136,7 +138,7 @@ Config is env-driven via `packages/config` (zod). Dev defaults ship in `docker-c
 
 - `NODE_ENV`, `APP_VERSION`, `APP_BASE_URL`, `API_BASE_URL`, `CORS_ORIGINS`
 - `DATABASE_URL`, `TWENTY_DATABASE_URL`, `REDIS_URL`
-- `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `ADMIN_API_KEY`
+- `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `ADMIN_API_KEY` (Better Auth vars are reserved for a future auth integration; admin routes today use the dev stub or `ADMIN_API_KEY`)
 - `PLATFORM_STORE` (`postgres` | `memory`, default `postgres`)
 - `AGNO_ENABLED`, `AGNO_AGENT_URL`, `AGNO_SERVICE_TOKEN`, `AGNO_MODEL`, `AGNO_EMBEDDING_MODEL`
 - `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, `EMBEDDING_MODEL`, `EMBEDDER_VERSION`
@@ -155,22 +157,24 @@ pnpm db:migrate     # apply
 pnpm smoke:phase1a-db
 ```
 
-Do not hand-edit generated migrations unless the tooling produced an invalid result.
+Do not hand-edit generated migrations unless the tooling produced an invalid result. `0003_repair_chatbot_runtime_columns.sql` is an intentional hand-written repair for databases that applied an earlier partial `chatbot` schema; it is tracked in the Drizzle journal and applied by `pnpm db:migrate` via `schema_metadata`.
 
 ## Research & design docs
 
-`Real Estate Web RD/` holds the source research/design layer: PRD, TRD, architecture, AI/RAG RD, Twenty CRM RD, CMS content pipeline, scheduler/email/social, analytics, data model/API, devops runbook, security/compliance, QA/UAT, roadmap, risk register, decisions lock, an OpenAPI 3.1.0 contract (`api_contracts.openapi.yaml`), a skeleton compose, `env.example`, and `schema.sql`. `pnpm check:openapi` and `pnpm check:compose` validate against these.
+`Real Estate Web RD/` holds the source research/design layer (blueprint, not a mirror of the implemented repo): PRD, TRD, architecture, AI/RAG RD, Twenty CRM RD, CMS content pipeline, scheduler/email/social, analytics, data model/API, devops runbook, security/compliance, QA/UAT, roadmap, risk register, decisions lock, an OpenAPI 3.1.0 contract (`api_contracts.openapi.yaml`), a skeleton compose (`docker-compose.skeleton.yml` differs from `docker-compose.phase0.yml`), `env.example`, and `schema.sql` (includes future tables not yet in Drizzle). `pnpm check:openapi` validates Phase 1A + platform paths implemented today; `pnpm check:compose` validates skeleton + phase0 compose configs.
+
+Historical handoff notes live in `phase0/` and `phase1/`; see each folder's `README.md`. They are not the operational source of truth.
 
 ## Implementation plans
 
-`plans/` contains prioritized, self-contained plans generated by the `improve` skill (2026-06-22), all status `TODO`:
+`plans/` contains prioritized, self-contained plans generated by the `improve` skill (2026-06-22). Status as of the post-upgrade baseline:
 
-| Plan | Title | Priority | Depends on |
-|---|---|---|---|
-| 001 | Restore the web verification baseline | P1 | — |
-| 002 | Split the admin app into maintainable screen modules | P1 | 001 |
-| 003 | Productionize the content approval desk with shadcn app primitives | P1 | 001, 002 |
-| 004 | Reconcile Select and Drawer behavior with shadcn Base UI patterns | P2 | 001 |
+| Plan | Title | Priority | Depends on | Status |
+|---|---|---|---|---|
+| 001 | Restore the web verification baseline | P1 | — | DONE |
+| 002 | Split the admin app into maintainable screen modules | P1 | 001 | DONE |
+| 003 | Productionize the content approval desk with shadcn app primitives | P1 | 001, 002 | DONE |
+| 004 | Reconcile Select and Drawer behavior with shadcn Base UI patterns | P2 | 001 | DONE |
 
 See `plans/README.md` for execution order and dependency notes.
 

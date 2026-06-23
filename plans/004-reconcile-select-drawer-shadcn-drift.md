@@ -7,6 +7,7 @@
 
 ## Status
 
+- **Execution status**: DONE (2026-06-23; `select.tsx` restored to shadcn registry; drawers use vaul `direction` on root)
 - **Priority**: P2
 - **Effort**: M
 - **Risk**: MED

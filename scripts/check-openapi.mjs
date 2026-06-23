@@ -8,7 +8,7 @@ if (document?.openapi !== "3.1.0") {
   throw new Error(`${contractPath} must use OpenAPI 3.1.0`)
 }
 
-const requiredPaths = [
+const requiredPhase1aPaths = [
   ["/health", "get"],
   ["/health/clamav", "get"],
   ["/admin/me", "get"],
@@ -26,7 +26,23 @@ const requiredPaths = [
   ["/admin/chat-lab/test-message", "post"],
 ]
 
-for (const [path, method] of requiredPaths) {
+const requiredPlatformPaths = [
+  ["/admin/projects", "get"],
+  ["/admin/projects", "post"],
+  ["/admin/projects/{projectId}/chatbots", "get"],
+  ["/admin/projects/{projectId}/chatbots", "post"],
+  ["/admin/chatbots/{chatbotId}", "get"],
+  ["/admin/chatbots/{chatbotId}/content", "get"],
+  ["/admin/chatbots/{chatbotId}/content", "post"],
+  ["/admin/chatbots/{chatbotId}/content/{contentId}", "patch"],
+  ["/admin/chatbots/{chatbotId}/content/{contentId}/publish", "post"],
+  ["/admin/chatbots/{chatbotId}/test-message", "post"],
+  ["/admin/chatbots/{chatbotId}/connectors", "get"],
+  ["/widget/{publicKey}/config", "get"],
+  ["/widget/{publicKey}/message", "post"],
+]
+
+for (const [path, method] of [...requiredPhase1aPaths, ...requiredPlatformPaths]) {
   if (!document.paths?.[path]?.[method]) {
     throw new Error(`${contractPath} must define ${method.toUpperCase()} ${path}`)
   }
@@ -46,6 +62,12 @@ const requiredSchemas = [
   "ChatSession",
   "ChatMessage",
   "ChatAnswerResponse",
+  "ChatbotCapabilities",
+  "PlatformProject",
+  "PlatformChatbot",
+  "PlatformContentItem",
+  "PlatformConnectorsResponse",
+  "WidgetConfigResponse",
 ]
 
 for (const schemaName of requiredSchemas) {
@@ -67,6 +89,11 @@ if (!dependencyHealthSchema?.required?.includes("dependency")) {
 const publishSchema = document.components.schemas.PublishResponse
 if (publishSchema.properties?.embeddingModel?.enum?.[0] !== "stub/hash-v1") {
   throw new Error(`${contractPath} PublishResponse must label stub/hash-v1 embeddings`)
+}
+
+const capabilitiesSchema = document.components.schemas.ChatbotCapabilities
+if (!capabilitiesSchema?.required?.includes("propertyRecommendations")) {
+  throw new Error(`${contractPath} ChatbotCapabilities must include propertyRecommendations`)
 }
 
 console.log("openapi contract ok")
