@@ -8,7 +8,7 @@ Apps:
 - `apps/web`: Vite React admin app using `@workspace/ui` and shadcn-style components (base-luma, Tailwind v4, Base UI, lucide-react). Currently a single `App.tsx` shell (router + dashboard + content desk + RAG view + chat lab + connectors).
 - `apps/api`: Fastify API gateway, base path `/api/v1`. Route groups: `health`, `dependency-health` (ClamAV), `admin` (Phase 1A RAG lab), `platform` (production chatbot platform + public widget endpoints).
 - `apps/worker`: BullMQ worker runtime (`src/index.ts` → `runtime.ts`), graceful SIGINT/SIGTERM shutdown.
-- `apps/agno-agent`: Python FastAPI internal agent runtime (agno 2.6.13). Endpoints `/health`, `/v1/chatbots/run`. Bearer `AGNO_SERVICE_TOKEN` auth. See `apps/agno-agent/README.md`.
+- `apps/agno-agent`: Python FastAPI internal agent runtime (agno 2.6.18). Endpoints `/health`, `/v1/chatbots/run`. Bearer `AGNO_SERVICE_TOKEN` auth. The optional `AgentOS` mount uses `AgentFactory(db=InMemoryDb())`. See `apps/agno-agent/README.md`.
 
 Packages:
 - `packages/ui`: shared shadcn/ui component library (`@workspace/ui`).
@@ -23,7 +23,7 @@ Other:
 - `docker-compose.phase0.yml`: postgres (pgvector), redis, clamav, agno-agent, app, worker.
 - `Dockerfile`: multi-stage Node image used by `app` and `worker` compose services.
 
-Use `pnpm` for all package operations. The repo declares `pnpm@10.33.4` and requires Node `>=24`. TypeScript ~6, ESM. Python `>=3.12,<3.15` for agno-agent.
+Use `pnpm` for all package operations. The repo declares `pnpm@11.8.0` (Corepack-managed via `packageManager`) and requires Node `>=24` (Node 24 LTS; Node 26 is Current but pre-LTS). TypeScript ~6, ESM. Python `>=3.12,<3.15` for agno-agent, pinned to specific tested floors (`agno==2.6.18`, `fastapi>=0.138,<1`, `uvicorn[standard]>=0.49,<1`, `pydantic>=2.13,<3`, `pytest>=9,<10`, `httpx>=0.28,<1`). Use `uv` for local Python envs (`uv venv && uv pip install -e ".[dev]"`); `uv.lock` is committed.
 
 ## Common Commands
 
@@ -95,6 +95,11 @@ pgvector `pg16`, 1024-dim `vector(1024)` custom type. Tables: `schema_metadata`,
 ### Channels
 Three connector channels: `website` (embeddable widget), `whatsapp` (Meta WhatsApp Business, placeholder), `instagram_dm` (placeholder). Connector statuses: `active`, `not_configured`, `needs_credentials`, etc.
 
+### Dependency management
+- pnpm 11 uses `allowBuilds` (map of `pkg: true|false`) in `pnpm-workspace.yaml` to declaratively approve native build scripts. Approved: `esbuild`, `msgpackr-extract`. Denied: `msw`. Any new package requiring a postinstall must be added here.
+- The agno `AgentFactory` (agno `>=2.6.18`) now requires a `db: BaseDb` positional argument. The optional `create_agent_os_app()` mount uses `agno.db.in_memory.InMemoryDb()` (no extra dependency, no persistence) and is wrapped in `try/except` so a future agno API drift degrades to a no-op mount rather than crashing the service. The core `POST /v1/chatbots/run` endpoint is unaffected.
+- Lockfiles (`pnpm-lock.yaml`, `uv.lock`) are committed and must be updated alongside dependency changes.
+
 ## Code Conventions
 
 - Keep changes scoped to the package that owns the behavior.
@@ -126,4 +131,4 @@ Three connector channels: `website` (embeddable widget), `whatsapp` (Meta WhatsA
 - Before editing a file that already has local changes, inspect it and work with the existing changes.
 - Avoid broad refactors while fixing narrow bugs.
 - Do not commit, push, or create branches unless the user asks.
-- `.gitignore` excludes `node_modules`, `dist`, `.turbo`, `.env*`, `.pnpm-store/`, `__pycache__/`, and the lowercase `agents.md` (case-insensitive FS duplicate of `AGENTS.md`).
+- `.gitignore` excludes `node_modules`, `dist`, `.turbo`, `.env*`, `.pnpm-store/`, `__pycache__/`, `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `*.pyc`, `*.sw?`, `*.tsbuildinfo`, and `AGENTS.md` is tracked (the lowercase `agents.md` was a case-insensitive FS duplicate and is no longer used).

@@ -896,7 +896,7 @@ function CreateWorkspaceButton({
         New project
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent side="right">
+        <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>New business project</DrawerTitle>
             <DrawerDescription>Create the project and its first chatbot from the web app.</DrawerDescription>
@@ -982,7 +982,7 @@ function CreateChatbotButton({
         {label}
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent side="right">
+        <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>New chatbot</DrawerTitle>
             <DrawerDescription>Add another chatbot to the selected business project.</DrawerDescription>
@@ -2413,13 +2413,14 @@ function AlertCallout(props: { title: string; description: string; variant?: "de
 }
 
 class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly status: number,
-  ) {
+  readonly code: string
+  readonly status: number
+
+  constructor(message: string, code: string, status: number) {
     super(message)
     this.name = "ApiError"
+    this.code = code
+    this.status = status
   }
 }
 

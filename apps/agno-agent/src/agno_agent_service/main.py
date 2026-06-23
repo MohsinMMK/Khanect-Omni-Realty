@@ -151,6 +151,7 @@ def try_run_agno_agent(request: RunRequest) -> RunResponse | None:
 def create_agent_os_app() -> Any | None:
     try:
         from agno.agent import Agent, AgentFactory
+        from agno.db.in_memory import InMemoryDb
         from agno.factory import RequestContext
         from agno.os import AgentOS
     except Exception:
@@ -174,13 +175,17 @@ def create_agent_os_app() -> Any | None:
             markdown=True,
         )
 
-    factory = AgentFactory(
-        id="khanect-chatbot-factory",
-        factory=build_chatbot_agent,
-        name="Khanect per-chatbot agent factory",
-        description="Builds a request-scoped chatbot agent from Fastify-verified chatbot metadata.",
-    )
-    return AgentOS(agents=[factory]).get_app()
+    try:
+        factory = AgentFactory(
+            id="khanect-chatbot-factory",
+            db=InMemoryDb(),
+            factory=build_chatbot_agent,
+            name="Khanect per-chatbot agent factory",
+            description="Builds a request-scoped chatbot agent from Fastify-verified chatbot metadata.",
+        )
+        return AgentOS(agents=[factory]).get_app()
+    except Exception:
+        return None
 
 
 agent_os_app = create_agent_os_app()

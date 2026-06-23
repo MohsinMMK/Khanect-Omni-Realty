@@ -18,12 +18,12 @@
     "@workspace/config": "workspace:*",
     "@workspace/core": "workspace:*",
     "@workspace/db": "workspace:*",
-    "bullmq": "^5.66.0"
+    "bullmq": "^5.79.1"
   },
   "devDependencies": {
     "@types/node": "^24",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.4",
     "typescript": "~6",
-    "vitest": "^4.0.16"
+    "vitest": "^4.1.9"
   }
 }

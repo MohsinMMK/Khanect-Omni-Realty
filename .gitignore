@@ -37,6 +37,11 @@ dist-ssr
 __pycache__/
 *.pyc
 *.sw?
+.venv/
+.venv-*/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # typescript
 *.tsbuildinfo

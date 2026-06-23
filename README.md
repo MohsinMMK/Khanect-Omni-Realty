@@ -5,6 +5,8 @@ Multi-tenant real-estate chatbot platform: an admin control room to author appro
 pnpm + Turbo monorepo. TypeScript Node services, a Vite React admin app, a Python agent runtime, Postgres + pgvector, Redis, and ClamAV.
 
 > Status: Phase 0 / 1A. Admin auth is a dev stub (`allowDevAdminStub`) outside production; production requires `ADMIN_API_KEY`. Embeddings default to a deterministic `stub/hash-v1` 1024-dim vector until a real embedding model is wired.
+>
+> All dependencies are pinned to the latest production-ready versions (pnpm 11, Node 24 LTS, Fastify 5, Vite 8, Tailwind v4, React 19, Drizzle 0.45, BullMQ 5, agno 2.6.18, FastAPI 0.138, pytest 9). See `AGENTS.md` for the tech stack and `pnpm-workspace.yaml` `allowBuilds` for native build approvals.
 
 ## Repository layout
 
@@ -61,7 +63,7 @@ shadcn/ui component library (`@workspace/ui`). Add components with `pnpm dlx sha
 ## Prerequisites
 
 - Node `>=24`
-- pnpm `10.33.4` (enforced via `packageManager`)
+- pnpm `11.8.0` (enforced via `packageManager`; Corepack-managed)
 - Docker Desktop (for Postgres, Redis, ClamAV, agno-agent)
 - Python `>=3.12,<3.15` (only for local agno-agent dev outside Docker)
 
@@ -174,16 +176,19 @@ See `plans/README.md` for execution order and dependency notes.
 
 ## Tech stack
 
-- **Monorepo:** pnpm workspaces, Turborepo
-- **Language:** TypeScript (~6), ESM; Python 3.12-3.14 for agno-agent
-- **Web:** Vite, React, shadcn/ui (base-luma), Tailwind v4, Base UI, lucide-react
-- **API:** Fastify, `@fastify/static`
-- **Worker:** BullMQ
-- **Agent:** Agno 2.6.13, FastAPI, uvicorn, pydantic
-- **DB:** Drizzle ORM, `pg`, Postgres + pgvector (1024-dim)
-- **Config:** zod
-- **Infra:** Docker Compose (postgres, redis, clamav, agno-agent, app, worker)
-- **Tests:** Vitest (Node), pytest (agno-agent)
+- **Runtime:** Node.js 24 LTS (engine `>=24`), pnpm 11.8.0 (Corepack-managed via `packageManager`)
+- **Build orchestration:** Turborepo 2.9
+- **Language:** TypeScript ~6 (ESM); Python `>=3.12,<3.15` for agno-agent
+- **Web:** Vite 8, React 19, shadcn/ui (base-luma), Tailwind v4, Base UI, lucide-react
+- **API:** Fastify 5, `@fastify/static` 9
+- **Worker:** BullMQ 5
+- **Agent:** Agno 2.6.18 (`AgentFactory` + `InMemoryDb` for the optional AgentOS mount), FastAPI 0.138, uvicorn 0.49, pydantic 2.13, httpx 0.28
+- **DB:** Drizzle ORM 0.45, `pg` 8, Postgres 16 + pgvector (1024-dim), drizzle-kit 0.31
+- **Config:** zod 4
+- **Tooling:** ESLint 10, Prettier 3.8, `typescript-eslint` 8, Vitest 4.1
+- **Infra:** Docker Compose (Postgres pgvector/pg16, Redis 7, ClamAV, agno-agent, app, worker)
+- **Tests:** Vitest 4.1 (Node, 39 tests), pytest 9 (agno-agent, 2 tests)
+- **Native builds approved:** `esbuild`, `msgpackr-extract` (in `pnpm-workspace.yaml` `allowBuilds`)
 
 ## License
 
