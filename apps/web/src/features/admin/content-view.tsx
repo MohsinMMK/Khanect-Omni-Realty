@@ -544,20 +544,27 @@ export function ContentView({
                           const chatbotCapabilities = getSelectedCapabilityLabels(chatbot.capabilities)
                           const isArchived = chatbot.status === "archived"
                           const isSelected = chatbot.id === chatbotId
+                          const isDrawerOpen = detailOpen && chatbot.id === chatbotId
                           return (
                             <TableRow
                               key={chatbot.id}
-                              className={cn(isSelected && "bg-muted/50")}
-                              data-state={isSelected ? "selected" : undefined}
+                              className={cn(
+                                "cursor-pointer",
+                                (isSelected || isDrawerOpen) && "bg-muted/50",
+                                !isDrawerOpen && "hover:bg-muted/40",
+                              )}
+                              data-state={isSelected || isDrawerOpen ? "selected" : undefined}
+                              tabIndex={0}
+                              onClick={() => openChatbotDetails(chatbot)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault()
+                                  openChatbotDetails(chatbot)
+                                }
+                              }}
                             >
                               <TableCell>
-                                <button
-                                  className="text-left font-medium hover:underline"
-                                  type="button"
-                                  onClick={() => openChatbotDetails(chatbot)}
-                                >
-                                  {chatbot.name}
-                                </button>
+                                <div className="font-medium">{chatbot.name}</div>
                                 <div className="line-clamp-1 text-sm text-muted-foreground">{chatbot.purpose}</div>
                               </TableCell>
                               <TableCell>
@@ -582,21 +589,16 @@ export function ContentView({
                                 </span>
                               </TableCell>
                               <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <Button size="sm" variant="outline" onClick={() => openChatbotDetails(chatbot)}>
-                                    <SendHorizontal data-icon="inline-start" />
-                                    Test
-                                  </Button>
+                                <div
+                                  className="flex items-center justify-end gap-1"
+                                  onClick={(event) => event.stopPropagation()}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                >
                                   <DropdownMenu>
                                     <DropdownMenuTrigger render={<Button aria-label={`${chatbot.name} actions`} size="icon-sm" variant="ghost" />}>
                                       <MoreHorizontal data-icon="inline-start" />
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end">
-                                      <DropdownMenuGroup>
-                                        <DropdownMenuItem onClick={() => openChatbotDetails(chatbot)}>
-                                          Details
-                                        </DropdownMenuItem>
-                                      </DropdownMenuGroup>
                                       {chatbotDraftItems.length > 0 && (
                                         <>
                                           <DropdownMenuSeparator />
