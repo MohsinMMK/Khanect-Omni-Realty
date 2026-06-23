@@ -22,8 +22,6 @@ dist-ssr
 # pnpm store
 .pnpm-store/
 
-# duplicate lowercase agents file (case-insensitive FS dup of AGENTS.md)
-agents.md
 
 # Editor directories and files
 .vscode/*
