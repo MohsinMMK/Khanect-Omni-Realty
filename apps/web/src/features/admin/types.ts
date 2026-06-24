@@ -126,6 +126,8 @@ export type ProjectEmbeddingConfig = {
   configuredProvider: EmbeddingProviderMode | null
   apiKeyConfigured: boolean
   apiKeyMasked: string | null
+  baseUrl: string | null
+  effectiveBaseUrl: string
   embedderUrl: string | null
   model: string | null
   dimension: number

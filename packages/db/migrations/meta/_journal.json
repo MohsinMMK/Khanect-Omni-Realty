@@ -57,6 +57,13 @@
       "when": 1782600000000,
       "tag": "0007_embedding_presets",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0008_project_ai_embedding_base_url",
+      "breakpoints": true
     }
   ]
 }

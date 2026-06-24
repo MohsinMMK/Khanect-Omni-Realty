@@ -1,0 +1,1 @@
+ALTER TABLE "project_ai_config" ADD COLUMN IF NOT EXISTS "embedding_base_url" text;

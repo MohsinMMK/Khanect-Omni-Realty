@@ -242,6 +242,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
           source?: "platform" | "project"
           provider?: EmbeddingProviderMode
           apiKey?: string | null
+          baseUrl?: string | null
           embedderUrl?: string | null
           model?: string | null
         }

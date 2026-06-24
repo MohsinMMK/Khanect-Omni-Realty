@@ -53,11 +53,21 @@ export {
 } from "./embedding.js"
 export { createRedisConnectionOptions, type RedisConnectionOptions } from "./redis.js"
 export {
+  openAiCompatibleEmbeddingPresets,
+  opencodeLlmPresets,
+  OPENCODE_ZEN_BASE_URL,
+  OPENAI_COMPATIBLE_EMBEDDINGS_BASE_URL,
+  recommendedEmbeddingPreset,
+  recommendedOpencodeLlmPreset,
+  type AiProviderPreset,
+} from "./ai-provider-catalog.js"
+export {
   buildProjectAiConfigDto,
   createProjectAiRuntimeResolver,
   createProjectAnswerProvider,
   joinBaseUrlPath,
   resolveProjectLlmRuntime,
+  resolveProjectEmbeddingApiBaseUrl,
   resolveProjectEmbeddingProvider,
   type ProjectAiConfigDto,
   type ProjectAiConfigUpdateInput,

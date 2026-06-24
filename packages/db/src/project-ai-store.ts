@@ -49,6 +49,7 @@ export interface ProjectAiRecord {
   embeddingSource: ProjectAiSource
   embeddingProvider?: EmbeddingProviderMode | null
   embeddingApiKey?: string
+  embeddingBaseUrl?: string | null
   embedderUrl?: string | null
   embeddingModel?: string | null
   embeddingDimension?: number | null
@@ -92,6 +93,7 @@ function toSecrets(record: ProjectAiRecord | null, projectId: string): ProjectAi
     embeddingSource: record.embeddingSource,
     embeddingProvider: record.embeddingProvider ?? undefined,
     embeddingApiKey: record.embeddingApiKey,
+    embeddingBaseUrl: record.embeddingBaseUrl ?? undefined,
     embedderUrl: record.embedderUrl ?? undefined,
     embeddingModel: record.embeddingModel ?? undefined,
     embeddingDimension: record.embeddingDimension ?? undefined,
@@ -138,6 +140,7 @@ export function applyProjectAiUpdate(
   if (input.embedding) {
     if (input.embedding.source) next.embeddingSource = input.embedding.source
     if (input.embedding.provider !== undefined) next.embeddingProvider = input.embedding.provider
+    if (input.embedding.baseUrl !== undefined) next.embeddingBaseUrl = input.embedding.baseUrl
     if (input.embedding.embedderUrl !== undefined) next.embedderUrl = input.embedding.embedderUrl
     if (input.embedding.model !== undefined) next.embeddingModel = input.embedding.model
     if (next.embeddingSource === "project" && next.embeddingProvider === "local") {
@@ -181,6 +184,7 @@ export function mapRowToProjectAiRecord(row: {
   embeddingSource: string
   embeddingProvider: string | null
   embeddingApiKeyEncrypted: string | null
+  embeddingBaseUrl: string | null
   embedderUrl: string | null
   embeddingModel: string | null
   embeddingDimension: number | null
@@ -195,6 +199,7 @@ export function mapRowToProjectAiRecord(row: {
     embeddingSource: row.embeddingSource as ProjectAiSource,
     embeddingProvider: row.embeddingProvider as EmbeddingProviderMode | null,
     embeddingApiKey: row.embeddingApiKeyEncrypted ?? undefined,
+    embeddingBaseUrl: row.embeddingBaseUrl,
     embedderUrl: row.embedderUrl,
     embeddingModel: row.embeddingModel,
     embeddingDimension: row.embeddingDimension,
@@ -233,6 +238,7 @@ export async function upsertProjectAiRecord(
       embeddingSource: record.embeddingSource,
       embeddingProvider: record.embeddingProvider ?? null,
       embeddingApiKeyEncrypted: record.embeddingApiKey ?? null,
+      embeddingBaseUrl: record.embeddingBaseUrl ?? null,
       embedderUrl: record.embedderUrl ?? null,
       embeddingModel: record.embeddingModel ?? null,
       embeddingDimension: record.embeddingDimension ?? null,
@@ -248,6 +254,7 @@ export async function upsertProjectAiRecord(
         embeddingSource: record.embeddingSource,
         embeddingProvider: record.embeddingProvider ?? null,
         embeddingApiKeyEncrypted: record.embeddingApiKey ?? null,
+        embeddingBaseUrl: record.embeddingBaseUrl ?? null,
         embedderUrl: record.embedderUrl ?? null,
         embeddingModel: record.embeddingModel ?? null,
         embeddingDimension: record.embeddingDimension ?? null,

@@ -2,6 +2,7 @@ import type { AppConfig } from "@workspace/config"
 import {
   createProjectAnswerProvider,
   probeOpenAiEmbeddings,
+  resolveProjectEmbeddingApiBaseUrl,
   resolveProjectEmbeddingProvider,
   type ProjectAiSecrets,
 } from "@workspace/core"
@@ -42,12 +43,12 @@ export async function probeProjectEmbedding(
     const apiKey = secrets?.embeddingSource === "project"
       ? secrets.embeddingApiKey?.trim()
       : appConfig.ai.openAiApiKey?.trim()
-    if (!apiKey) return { ok: false as const, detail: "OpenAI embedding API key is not configured for this project." }
+    if (!apiKey) return { ok: false as const, detail: "Embedding API key is not configured for this project." }
 
     try {
       await probeOpenAiEmbeddings({
         apiKey,
-        baseUrl: appConfig.ai.openAiBaseUrl,
+        baseUrl: resolveProjectEmbeddingApiBaseUrl(secrets, appConfig.ai),
         model: provider.model,
         dimension: provider.dimension,
         fetchImpl,

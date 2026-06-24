@@ -90,9 +90,9 @@ export function EmbeddingSettingsPanel() {
   return (
     <Card className="xl:col-span-2">
       <CardHeader>
-        <CardTitle>Knowledge embeddings</CardTitle>
+        <CardTitle>Platform embedding fallback</CardTitle>
         <CardDescription>
-          Choose how FAQ and listing chunks are vectorized for RAG search. Configuration is set on the server via environment variables.
+          Read-only server fallback used only when a project has not saved its own embedding key. Configure production credentials per project under Projects → AI keys.
         </CardDescription>
         <CardAction>
           {status && <Badge variant={statusBadgeVariant(status.status)}>{status.status}</Badge>}
@@ -117,6 +117,13 @@ export function EmbeddingSettingsPanel() {
 
         {!loading && status && (
           <>
+            <Alert>
+              <AlertTitle>Configure embeddings in Projects → AI keys</AlertTitle>
+              <AlertDescription>
+                Save a separate OpenAI-compatible embeddings key per project. OpenCode Zen covers chat answers only; embeddings use a hosted `/v1/embeddings` API at 1024 dimensions.
+              </AlertDescription>
+            </Alert>
+
             <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">
@@ -157,16 +164,16 @@ export function EmbeddingSettingsPanel() {
                   })}
                 </ToggleGroup>
                 <FieldDescription>
-                  To switch providers, update server env vars and restart the API + worker. This panel reflects the live configuration.
+                  Platform fallback only. Project-level keys in the admin UI take precedence and do not require server restarts.
                 </FieldDescription>
               </Field>
 
               {status.provider === "openai" && (
                 <Field>
-                  <FieldLabel>OpenAI API key</FieldLabel>
-                  <Input readOnly value={status.apiKeyConfigured ? "Configured on server" : "Missing — add OPENAI_API_KEY"} />
+                  <FieldLabel>Platform embeddings key</FieldLabel>
+                  <Input readOnly value={status.apiKeyConfigured ? "Configured on server (fallback)" : "Not configured — use project AI keys instead"} />
                   <FieldDescription>
-                    Uses text-embedding-3-small at 1024 dimensions so vectors match your pgvector schema. Your ~$5 credit covers months of typical indexing.
+                    text-embedding-3-small at 1024 dimensions. Prefer per-project keys for security and UI-only operations.
                   </FieldDescription>
                 </Field>
               )}

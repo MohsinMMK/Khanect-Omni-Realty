@@ -108,6 +108,7 @@ export const projectAiConfig = pgTable(
     embeddingSource: text("embedding_source").notNull().default("platform"),
     embeddingProvider: text("embedding_provider"),
     embeddingApiKeyEncrypted: text("embedding_api_key_encrypted"),
+    embeddingBaseUrl: text("embedding_base_url"),
     embedderUrl: text("embedder_url"),
     embeddingModel: text("embedding_model"),
     embeddingDimension: integer("embedding_dimension"),

@@ -310,6 +310,7 @@ function embeddingSettingsChanged(before: ProjectAiRecord | null | undefined, af
     (before?.embeddingProvider ?? null) !== (after.embeddingProvider ?? null) ||
     (before?.embeddingModel ?? null) !== (after.embeddingModel ?? null) ||
     (before?.embeddingDimension ?? null) !== (after.embeddingDimension ?? null) ||
+    (before?.embeddingBaseUrl ?? null) !== (after.embeddingBaseUrl ?? null) ||
     (before?.embedderUrl ?? null) !== (after.embedderUrl ?? null)
   )
 }
@@ -367,6 +368,7 @@ function mapMemorySecrets(record: ProjectAiRecord | undefined, projectId: string
     embeddingSource: record.embeddingSource,
     embeddingProvider: record.embeddingProvider ?? undefined,
     embeddingApiKey: record.embeddingApiKey,
+    embeddingBaseUrl: record.embeddingBaseUrl ?? undefined,
     embedderUrl: record.embedderUrl ?? undefined,
     embeddingModel: record.embeddingModel ?? undefined,
     embeddingDimension: record.embeddingDimension ?? undefined,

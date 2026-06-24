@@ -9,6 +9,7 @@ import {
 import {
   buildProjectAiConfigDto,
   createProjectAnswerProvider,
+  resolveProjectEmbeddingApiBaseUrl,
   resolveProjectEmbeddingProvider,
   type ProjectAiPlatformConfig,
   type ProjectAiSecrets,
@@ -64,6 +65,17 @@ describe("project-ai", () => {
     const provider = resolveProjectEmbeddingProvider(projectSecrets, platformConfig)
     expect(provider.mode).toBe("openai")
     expect(provider.model).toBe("text-embedding-3-small")
+  })
+
+  it("uses project embedding base URL when configured", () => {
+    const secrets: ProjectAiSecrets = {
+      ...projectSecrets,
+      embeddingBaseUrl: "https://embed.example.com/v1",
+    }
+    expect(resolveProjectEmbeddingApiBaseUrl(secrets, platformConfig)).toBe("https://embed.example.com/v1")
+    const dto = buildProjectAiConfigDto(secrets, platformConfig, secrets.projectId)
+    expect(dto.embedding.baseUrl).toBe("https://embed.example.com/v1")
+    expect(dto.embedding.effectiveBaseUrl).toBe("https://embed.example.com/v1")
   })
 
   it("resolves local BGE project presets to their catalog dimensions", () => {

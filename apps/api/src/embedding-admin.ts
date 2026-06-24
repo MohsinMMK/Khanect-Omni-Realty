@@ -44,9 +44,9 @@ const embeddingModes: EmbeddingModeInfo[] = [
   },
   {
     id: "openai",
-    label: "OpenAI API",
-    summary: "Hosted embeddings via text-embedding-3-small at 1024 dimensions (Matryoshka).",
-    bestFor: "Low-RAM VPS production — uses your OpenAI credits, no local model load.",
+    label: "Hosted API",
+    summary: "OpenAI-compatible embeddings via text-embedding-3-small at 1024 dimensions (Matryoshka).",
+    bestFor: "Low-RAM VPS production — configure per project in the admin UI, no local model load.",
     ramHint: "No embedder RAM on your server.",
     costHint: "About $0.02 per 1M tokens (~$5 credit ≈ 250M tokens).",
     envVars: [

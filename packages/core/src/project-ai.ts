@@ -1,3 +1,4 @@
+import { OPENAI_COMPATIBLE_EMBEDDINGS_BASE_URL } from "./ai-provider-catalog.js"
 import {
   createEmbeddingProviderFromConfig,
   getLocalEmbeddingPresetByModel,
@@ -25,6 +26,7 @@ export interface ProjectAiSecrets {
   embeddingSource: ProjectAiSource
   embeddingProvider?: EmbeddingProviderMode
   embeddingApiKey?: string
+  embeddingBaseUrl?: string
   embedderUrl?: string
   embeddingModel?: string
   embeddingDimension?: number
@@ -54,6 +56,8 @@ export interface ProjectEmbeddingConfigDto {
   configuredProvider: EmbeddingProviderMode | null
   apiKeyConfigured: boolean
   apiKeyMasked: string | null
+  baseUrl: string | null
+  effectiveBaseUrl: string
   embedderUrl: string | null
   model: string | null
   dimension: number
@@ -80,6 +84,7 @@ export interface ProjectAiConfigUpdateInput {
     source?: ProjectAiSource
     provider?: EmbeddingProviderMode
     apiKey?: string | null
+    baseUrl?: string | null
     embedderUrl?: string | null
     model?: string | null
     dimension?: number | null
@@ -145,6 +150,9 @@ function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: P
     : platform.embeddingProvider
 
   const apiKey = useProject ? secrets?.embeddingApiKey?.trim() : platform.openAiApiKey?.trim()
+  const projectEmbeddingBaseUrl = secrets?.embeddingBaseUrl?.trim() || null
+  const platformBaseUrl = platform.openAiBaseUrl?.trim() || OPENAI_COMPATIBLE_EMBEDDINGS_BASE_URL
+  const effectiveBaseUrl = (useProject ? projectEmbeddingBaseUrl || platformBaseUrl : platformBaseUrl).replace(/\/$/, "")
   const embedderUrl = useProject ? secrets?.embedderUrl?.trim() : platform.embedderUrl?.trim()
   const model = useProject
     ? secrets?.embeddingModel?.trim() || platform.embeddingModel
@@ -166,8 +174,8 @@ function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: P
   if (provider === "openai" && !apiKey) {
     status = "misconfigured"
     detail = useProject
-      ? "Add an OpenAI API key for this project's embeddings."
-      : "Set OPENAI_API_KEY on the server or configure a project embedding key."
+      ? "Add an OpenAI-compatible embedding API key for this project."
+      : "Configure a project embedding key in the admin UI."
   }
 
   if (provider === "local" && !embedderUrl) {
@@ -186,6 +194,8 @@ function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: P
     provider,
     configuredProvider: useProject ? secrets?.embeddingProvider ?? null : null,
     apiKey,
+    projectEmbeddingBaseUrl,
+    effectiveBaseUrl,
     embedderUrl: embedderUrl ?? null,
     model: model ?? null,
     dimension,
@@ -231,6 +241,8 @@ export function buildProjectAiConfigDto(
       configuredProvider: embedding.configuredProvider,
       apiKeyConfigured: embedding.configured,
       apiKeyMasked: embedding.masked,
+      baseUrl: embedding.projectEmbeddingBaseUrl,
+      effectiveBaseUrl: embedding.effectiveBaseUrl,
       embedderUrl: embedding.embedderUrl,
       model: embedding.model,
       dimension: embedding.dimension,
@@ -239,6 +251,13 @@ export function buildProjectAiConfigDto(
       detail: embedding.detail,
     },
   }
+}
+
+export function resolveProjectEmbeddingApiBaseUrl(
+  secrets: ProjectAiSecrets | null,
+  platform: ProjectAiPlatformConfig,
+): string {
+  return resolveEffectiveEmbedding(secrets, platform).effectiveBaseUrl
 }
 
 export function resolveProjectEmbeddingProvider(
@@ -265,7 +284,7 @@ export function resolveProjectEmbeddingProvider(
     embeddingModel: embedding.model ?? platform.embeddingModel,
     dimension: embedding.dimension,
     openAiApiKey: embedding.apiKey,
-    openAiBaseUrl: platform.openAiBaseUrl,
+    openAiBaseUrl: embedding.effectiveBaseUrl,
     openAiEmbeddingModel: embedding.model ?? platform.openAiEmbeddingModel,
   })
 }
