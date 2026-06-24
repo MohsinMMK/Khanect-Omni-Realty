@@ -63,7 +63,7 @@ export function SettingsView({
         <CardHeader>
           <CardTitle>Project AI keys</CardTitle>
           <CardDescription>
-            OpenCode Zen chat keys and embedding credentials are saved per project in the admin UI. Keys are encrypted server-side and never shown in full after save. Open a project card menu and choose AI keys.
+            OpenCode Go and Zen chat keys plus embedding credentials are saved per project in the admin UI. Keys are encrypted server-side and never shown in full after save. Open a project card menu and choose AI keys.
           </CardDescription>
         </CardHeader>
         <CardFooter>

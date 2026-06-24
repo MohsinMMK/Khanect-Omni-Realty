@@ -1,10 +1,12 @@
 import {
+  listOpencodeLlmPresetsByPlan,
   openAiCompatibleEmbeddingPresets,
-  opencodeLlmPresets,
   OPENAI_COMPATIBLE_EMBEDDINGS_BASE_URL,
+  OPENCODE_GO_BASE_URL,
   OPENCODE_ZEN_BASE_URL,
   recommendedEmbeddingPreset,
   recommendedOpencodeLlmPreset,
+  type AiProviderPreset,
 } from "@workspace/core"
 import { localEmbeddingModelPresets } from "@workspace/core/embedding-catalog"
 import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert"
@@ -42,6 +44,56 @@ const embeddingProviderOptions: Array<{ id: EmbeddingProviderMode; label: string
 const recommendedLocalEmbeddingModel =
   localEmbeddingModelPresets.find((preset) => preset.recommended)?.model ?? "BAAI/bge-base-en-v1.5"
 
+function LlmPresetSection({
+  title,
+  description,
+  presets,
+  selectedModel,
+  selectedBaseUrl,
+  onSelect,
+}: {
+  title: string
+  description: string
+  presets: AiProviderPreset[]
+  selectedModel: string
+  selectedBaseUrl: string
+  onSelect: (model: string, baseUrl: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {presets.map((preset) => {
+          const selected = selectedModel === preset.model && selectedBaseUrl === preset.baseUrl
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              className={cn(
+                "rounded-lg border p-4 text-left transition-colors",
+                selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted",
+              )}
+              onClick={() => onSelect(preset.model, preset.baseUrl)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{preset.label}</span>
+                {preset.recommended && <Badge variant="secondary">Recommended</Badge>}
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">{preset.summary}</p>
+              <Badge className="mt-3" variant="outline">
+                {preset.model}
+              </Badge>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function ProjectAiSettingsDrawer({
   open,
   onOpenChange,
@@ -61,7 +113,7 @@ export function ProjectAiSettingsDrawer({
 
   const [llmSource, setLlmSource] = useState<ProjectAiSource>("project")
   const [llmApiKey, setLlmApiKey] = useState("")
-  const [llmBaseUrl, setLlmBaseUrl] = useState(OPENCODE_ZEN_BASE_URL)
+  const [llmBaseUrl, setLlmBaseUrl] = useState(recommendedOpencodeLlmPreset.baseUrl)
   const [llmModel, setLlmModel] = useState(recommendedOpencodeLlmPreset.model)
 
   const [embeddingSource, setEmbeddingSource] = useState<ProjectAiSource>("project")
@@ -199,6 +251,13 @@ export function ProjectAiSettingsDrawer({
   }
 
   const usesPlatformFallback = llmSource === "platform" || embeddingSource === "platform"
+  const normalizedLlmBaseUrl = llmBaseUrl.replace(/\/$/, "")
+  const activeLlmPlan =
+    normalizedLlmBaseUrl === OPENCODE_GO_BASE_URL
+      ? "Go"
+      : normalizedLlmBaseUrl === OPENCODE_ZEN_BASE_URL
+        ? "Zen"
+        : "API"
 
   return (
     <Drawer direction="right" open={open} onOpenChange={onOpenChange}>
@@ -264,7 +323,7 @@ export function ProjectAiSettingsDrawer({
                       <Badge variant="outline">{config.llm.effectiveModel}</Badge>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      Powers grounded chat answers. Use your OpenCode Zen key with the presets below.
+                      Powers grounded chat answers. Use your OpenCode Go or Zen API key — match the preset plan to your subscription.
                     </p>
                   </div>
 
@@ -289,55 +348,56 @@ export function ProjectAiSettingsDrawer({
                     {llmSource === "project" && (
                       <>
                         <Field>
-                          <FieldLabel>OpenCode Zen preset</FieldLabel>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {opencodeLlmPresets.map((preset) => {
-                              const selected = llmModel === preset.model && llmBaseUrl === preset.baseUrl
-                              return (
-                                <button
-                                  key={preset.id}
-                                  type="button"
-                                  className={cn(
-                                    "rounded-lg border p-4 text-left transition-colors",
-                                    selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted",
-                                  )}
-                                  onClick={() => applyLlmPreset(preset.model, preset.baseUrl)}
-                                >
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="font-medium">{preset.label}</span>
-                                    {preset.recommended && <Badge variant="secondary">Recommended</Badge>}
-                                  </div>
-                                  <p className="mt-2 text-sm text-muted-foreground">{preset.summary}</p>
-                                  <Badge className="mt-3" variant="outline">
-                                    {preset.model}
-                                  </Badge>
-                                </button>
-                              )
-                            })}
+                          <FieldLabel>OpenCode model preset</FieldLabel>
+                          <div className="flex flex-col gap-5">
+                            <LlmPresetSection
+                              description="Low-cost subscription ($10/mo). Use your Go plan API key from opencode.ai/auth."
+                              presets={listOpencodeLlmPresetsByPlan("go")}
+                              selectedBaseUrl={llmBaseUrl}
+                              selectedModel={llmModel}
+                              title="OpenCode Go"
+                              onSelect={applyLlmPreset}
+                            />
+                            <Separator />
+                            <LlmPresetSection
+                              description="Pay-as-you-go curated models. Use your Zen API key from opencode.ai/auth."
+                              presets={listOpencodeLlmPresetsByPlan("zen")}
+                              selectedBaseUrl={llmBaseUrl}
+                              selectedModel={llmModel}
+                              title="OpenCode Zen"
+                              onSelect={applyLlmPreset}
+                            />
                           </div>
                         </Field>
 
                         <Field>
-                          <FieldLabel>OpenCode API key</FieldLabel>
+                          <FieldLabel>OpenCode {activeLlmPlan} API key</FieldLabel>
                           <Input
                             autoComplete="off"
                             type="password"
-                            placeholder={config.llm.apiKeyConfigured ? "Leave blank to keep saved key" : "Paste OpenCode Zen key"}
+                            placeholder={
+                              config.llm.apiKeyConfigured
+                                ? "Leave blank to keep saved key"
+                                : `Paste OpenCode ${activeLlmPlan} key`
+                            }
                             value={llmApiKey}
                             onChange={(event) => setLlmApiKey(event.target.value)}
                           />
                           <FieldDescription>
                             <Lock data-icon="inline-start" />
-                            Encrypted before storage. Used only for chat answers in this project.
+                            Encrypted before storage. Go and Zen keys are different subscriptions — use the key that matches your preset.
                           </FieldDescription>
                         </Field>
                         <Field>
                           <FieldLabel>Base URL</FieldLabel>
                           <Input
-                            placeholder={OPENCODE_ZEN_BASE_URL}
+                            placeholder={OPENCODE_GO_BASE_URL}
                             value={llmBaseUrl}
                             onChange={(event) => setLlmBaseUrl(event.target.value)}
                           />
+                          <FieldDescription>
+                            Go: {OPENCODE_GO_BASE_URL} · Zen: {OPENCODE_ZEN_BASE_URL}
+                          </FieldDescription>
                         </Field>
                         <Field>
                           <FieldLabel>Model</FieldLabel>
