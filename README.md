@@ -99,6 +99,51 @@ curl -i http://localhost:3000/api/v1/health/clamav
 
 Default dev ports: web `5173`, api `3000`, agno-agent `8000`, postgres `5432`, redis `6379`, clamav `3310`.
 
+## Docker Desktop local-prod proof
+
+Use this before VPS deployment. It runs the production-shaped stack locally with Docker Desktop: web, API, worker, Postgres/pgvector, Redis, ClamAV, Agno, and the local RAG embedder.
+
+The profile defaults to `BAAI/bge-small-en-v1.5` at 384 dimensions to keep RAM pressure low. Host ports are intentionally separate from dev servers:
+
+- Web: `http://localhost:8088`
+- API direct: `http://localhost:3002/api/v1`
+- Worker health: `http://localhost:3003`
+- Agno: `http://localhost:8001/health`
+- Embedder: `http://localhost:8081/health`
+- Postgres: `localhost:55432`
+- Redis: `localhost:56379`
+
+```bash
+open -a Docker
+docker info
+docker compose -f docker-compose.local-prod.yml --profile local-prod up -d --build
+
+curl -i http://localhost:8088/
+curl -i http://localhost:8088/api/v1/health
+curl -i http://localhost:3002/api/v1/health/ready
+curl -i http://localhost:8001/health
+curl -i http://localhost:8081/health
+```
+
+Admin routes run with `NODE_ENV=production`, so the local-prod admin key is required:
+
+```bash
+localprod_admin_api_key_change_me_64_chars_minimum_value
+```
+
+Use the same value in the web app when it asks for the admin key, or pass it in API calls:
+
+```bash
+curl -H 'x-khanect-admin-api-key: localprod_admin_api_key_change_me_64_chars_minimum_value' \
+  http://localhost:8088/api/v1/admin/projects
+```
+
+Stop the stack:
+
+```bash
+docker compose -f docker-compose.local-prod.yml --profile local-prod down
+```
+
 ## Common commands
 
 Run from repo root unless filtered.

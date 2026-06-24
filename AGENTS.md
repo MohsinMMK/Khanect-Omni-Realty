@@ -139,6 +139,42 @@ Canonical references for the current RAG epic (Plan 005):
 
 If web search or doc fetch fails, retry with an alternate query or fetch the `.md` URL directly (e.g. `docs.bullmq.io/guide/queues.md`) before improvising API usage.
 
+## Connect Hostinger MCP (chat trigger)
+
+When the user says **"connect hostinger mcp"**, follow these official [Docker MCP Toolkit](https://docs.docker.com/ai/mcp-catalog-and-toolkit/get-started/) steps. Execute them yourself; do not only list instructions.
+
+**Prerequisites:** Docker Desktop running; **Beta features → Enable Docker MCP Toolkit** applied.
+
+1. **Profile** — ensure `hostinger-mcp-server` is in a profile (this repo uses `servers`):
+   ```bash
+   docker mcp profile list
+   docker mcp profile server ls
+   # if missing:
+   docker mcp profile create servers
+   docker mcp profile server add servers hostinger-mcp-server
+   ```
+2. **Secret** — Hostinger API token from [hPanel → API](https://hpanel.hostinger.com/profile/api). Store as `hostinger-mcp-server.api_token` (injected as `APITOKEN`):
+   ```bash
+   echo 'YOUR_TOKEN' | docker mcp secret set hostinger-mcp-server.api_token
+   docker mcp secret ls   # expect hostinger-mcp-server.api_token
+   ```
+   Or: Docker Desktop → **MCP Toolkit → Profiles → servers → Hostinger API → configure secrets**.
+3. **Cursor client** — `.cursor/mcp.json` must point the gateway at that profile:
+   ```json
+   {
+     "mcpServers": {
+       "MCP_DOCKER": {
+         "command": "docker",
+         "args": ["mcp", "gateway", "run", "--profile", "servers"]
+       }
+     }
+   }
+   ```
+4. **Reload** — tell the user to restart **MCP_DOCKER** in **Cursor Settings → Tools & MCP** (or reload the window).
+5. **Verify** — agent calls `VPS_getVirtualMachinesV1` via `CallMcpTool` (`server`: `MCP_DOCKER`). Success = Hostinger API reachable; report VPS count or the error.
+
+Refs: [MCP Gateway](https://docs.docker.com/ai/mcp-catalog-and-toolkit/mcp-gateway/), [Profiles](https://docs.docker.com/ai/mcp-catalog-and-toolkit/profiles/), [Hostinger MCP catalog](http://desktop.docker.com/mcp/catalog/v3/readme/hostinger-mcp-server.md).
+
 ## Verification Expectations
 
 - For API, worker, core, config, or database changes, run the most specific package test/typecheck first, then broaden if the change affects shared behavior.
