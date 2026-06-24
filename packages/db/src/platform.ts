@@ -1,13 +1,17 @@
 import type { AppConfig } from "@workspace/config"
 import {
+  buildAgentCapabilityPolicy,
   createProjectAiRuntimeResolver,
   createStubEmbeddingProvider,
   createUuidV7,
+  type AgentCapabilityPolicy,
+  type AgentSourceType,
   type EmbeddingProvider,
   type ProjectAiConfigDto,
   type ProjectAiConfigUpdateInput,
   type ProjectAiRuntimeResolver,
   type ProjectAiSecrets,
+  type ProjectLlmRuntimeConfig,
 } from "@workspace/core"
 import { and, desc, eq, like, sql } from "drizzle-orm"
 import type { Pool } from "pg"
@@ -82,7 +86,7 @@ export interface ChatbotDto {
   status: "draft" | "active" | "archived"
   agentKey: string
   knowledgeNamespace: string
-  runtimeStatus: "ready" | "syncing" | "error" | "paused"
+  runtimeStatus: "provisioning" | "live" | "syncing" | "error" | "paused"
   lastIndexedContentVersionId: string | null
   lastSyncError: string | null
   createdAt: string
@@ -121,6 +125,7 @@ export interface PlatformSourceDto {
   title: string
   excerpt: string
   score: number
+  sourceType: PlatformContentType
 }
 
 export interface PlatformChatAnswerDto {
@@ -143,6 +148,8 @@ export interface PlatformAnswerProviderInput {
   chatbot: ChatbotDto
   chatbotId: string
   channel: ConnectorChannel
+  policy: AgentCapabilityPolicy
+  llmConfig?: ProjectLlmRuntimeConfig
 }
 
 export interface PlatformAnswerProviderResult {
@@ -177,6 +184,7 @@ export interface ProductionChatbotStoreOptions {
   appConfig?: AppConfig
   encryptionKey?: string
   projectAiResolver?: ProjectAiRuntimeResolver
+  answerProviderPriority?: "project" | "default"
 }
 
 export interface ChannelConnectorDto {
@@ -250,6 +258,7 @@ export interface ProductionChatbotStore {
       capabilities?: Partial<ChatbotCapabilitiesDto>
     },
   ): Promise<ChatbotDto | null>
+  updateChatbotRuntimeStatus(id: string, input: { runtimeStatus: ChatbotDto["runtimeStatus"]; lastSyncError?: string | null }): Promise<ChatbotDto | null>
   archiveChatbot(id: string): Promise<ChatbotDto | null>
   unarchiveChatbot(id: string): Promise<ChatbotDto | null>
   deleteChatbot(id: string): Promise<ChatbotDto | null>
@@ -295,6 +304,16 @@ export interface ProductionChatbotStore {
   close?(): Promise<void>
 }
 
+function embeddingSettingsChanged(before: ProjectAiRecord | null | undefined, after: ProjectAiRecord): boolean {
+  return (
+    (before?.embeddingSource ?? "platform") !== after.embeddingSource ||
+    (before?.embeddingProvider ?? null) !== (after.embeddingProvider ?? null) ||
+    (before?.embeddingModel ?? null) !== (after.embeddingModel ?? null) ||
+    (before?.embeddingDimension ?? null) !== (after.embeddingDimension ?? null) ||
+    (before?.embedderUrl ?? null) !== (after.embedderUrl ?? null)
+  )
+}
+
 interface ChunkRecord {
   id: string
   knowledgeSourceId: string
@@ -302,6 +321,7 @@ interface ChunkRecord {
   content: string
   title: string
   sourceVersionId: string
+  sourceType: PlatformContentType
   embedding: number[]
 }
 
@@ -317,6 +337,7 @@ interface PendingIndexRecord {
 }
 
 const MIN_VECTOR_RELEVANCE_SCORE = 0.05
+const STRONG_VECTOR_RELEVANCE_SCORE = 0.66
 
 function createDefaultProjectAiResolver(
   options: ProductionChatbotStoreOptions,
@@ -348,6 +369,7 @@ function mapMemorySecrets(record: ProjectAiRecord | undefined, projectId: string
     embeddingApiKey: record.embeddingApiKey,
     embedderUrl: record.embedderUrl ?? undefined,
     embeddingModel: record.embeddingModel ?? undefined,
+    embeddingDimension: record.embeddingDimension ?? undefined,
   }
 }
 
@@ -375,6 +397,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
     projectAiResolver,
     defaultEmbeddingProvider: embeddingProvider,
     defaultAnswerProvider: options.answerProvider as RuntimeAnswerProvider | undefined,
+    answerProviderPriority: options.answerProviderPriority ?? "project",
   }
 
   return {
@@ -462,8 +485,32 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
     },
     async updateProjectAiConfig(projectId, input) {
       if (!projects.has(projectId) || !appConfig) return null
-      const next = applyProjectAiUpdate(projectAiConfigs.get(projectId) ?? null, input, projectId, encryptionKey, false)
+      const previous = projectAiConfigs.get(projectId) ?? null
+      const next = applyProjectAiUpdate(previous, input, projectId, encryptionKey, false)
       projectAiConfigs.set(projectId, mapMemoryProjectAiRecord(next))
+      if (embeddingSettingsChanged(previous, next)) {
+        const chatbotIds = new Set([...chatbots.values()].filter((item) => item.projectId === projectId).map((item) => item.id))
+        const sourceIds = new Set<string>()
+        for (const [sourceId, source] of knowledgeSources) {
+          if (chatbotIds.has(source.chatbotId)) {
+            sourceIds.add(sourceId)
+            knowledgeSources.set(sourceId, { ...source, status: "syncing", chunkCount: 0 })
+          }
+        }
+        for (const [chunkId, chunk] of chunks) {
+          if (sourceIds.has(chunk.knowledgeSourceId)) chunks.delete(chunkId)
+        }
+        for (const [chatbotId, item] of chatbots) {
+          if (item.projectId === projectId) {
+            chatbots.set(chatbotId, {
+              ...item,
+              runtimeStatus: "syncing",
+              lastSyncError: "Embedding preset changed. Reindex published knowledge.",
+              updatedAt: now(),
+            })
+          }
+        }
+      }
       return mapProjectAiConfigDto(projectAiConfigs.get(projectId) ?? null, appConfig, projectId)
     },
     async getProjectAiSecrets(projectId) {
@@ -488,7 +535,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
         status: "active",
         agentKey: createAgentKey(chatbotId),
         knowledgeNamespace: createKnowledgeNamespace(chatbotId),
-        runtimeStatus: "ready",
+        runtimeStatus: "provisioning",
         lastIndexedContentVersionId: null,
         lastSyncError: null,
         createdAt: timestamp,
@@ -517,6 +564,18 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
       chatbots.set(id, next)
       return next
     },
+    async updateChatbotRuntimeStatus(id, input) {
+      const existing = chatbots.get(id)
+      if (!existing) return null
+      const next: ChatbotDto = {
+        ...existing,
+        runtimeStatus: input.runtimeStatus,
+        lastSyncError: input.lastSyncError !== undefined ? input.lastSyncError : existing.lastSyncError,
+        updatedAt: now(),
+      }
+      chatbots.set(id, next)
+      return next
+    },
     async archiveChatbot(id) {
       const existing = chatbots.get(id)
       if (!existing) return null
@@ -527,7 +586,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
     async unarchiveChatbot(id) {
       const existing = chatbots.get(id)
       if (!existing) return null
-      const next: ChatbotDto = { ...existing, status: "active", runtimeStatus: "ready", updatedAt: now() }
+      const next: ChatbotDto = { ...existing, status: "active", runtimeStatus: "provisioning", updatedAt: now() }
       chatbots.set(id, next)
       return next
     },
@@ -678,6 +737,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
           content: chunk.content,
           title: pending.title,
           sourceVersionId: pending.sourceVersionId,
+          sourceType: pending.contentType,
           embedding: embeddings[index] ?? [],
         })
       }
@@ -696,7 +756,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
       if (existingChatbot) {
         chatbots.set(pending.chatbotId, {
           ...existingChatbot,
-          runtimeStatus: "ready",
+          runtimeStatus: "live",
           lastIndexedContentVersionId: pending.sourceVersionId,
           lastSyncError: null,
           updatedAt: timestamp,
@@ -752,6 +812,7 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
         chatbotId,
         answerProvider: runtime.answerProvider as PlatformAnswerProvider | undefined,
         embeddingModel: runtime.embeddingProvider.model,
+        llmConfig: runtime.llmConfig,
       })
     },
     async listConnectors(chatbotId) {
@@ -893,6 +954,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
     projectAiResolver,
     defaultEmbeddingProvider: embeddingProvider,
     defaultAnswerProvider: options.answerProvider as RuntimeAnswerProvider | undefined,
+    answerProviderPriority: options.answerProviderPriority ?? "project",
   }
 
   return {
@@ -976,8 +1038,32 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
       const existingRow = await db.query.projectAiConfig.findFirst({
         where: and(eq(projectAiConfig.tenantId, tenantId), eq(projectAiConfig.projectId, projectId)),
       })
-      const next = applyProjectAiUpdate(existingRow ? mapRowToProjectAiRecord(existingRow) : null, input, projectId, encryptionKey)
+      const previous = existingRow ? mapRowToProjectAiRecord(existingRow) : null
+      const next = applyProjectAiUpdate(previous, input, projectId, encryptionKey)
       const saved = await upsertProjectAiRecord(db, tenantId, next)
+      if (embeddingSettingsChanged(previous, saved)) {
+        await pool.query(
+          `delete from rag_chunk c
+             using chatbot_knowledge_source ks
+            where ks.tenant_id = $1
+              and ks.project_id = $2
+              and c.tenant_id = ks.tenant_id
+              and c.source_version_id = ks.source_version_id`,
+          [tenantId, projectId],
+        )
+        await db
+          .update(chatbotKnowledgeSource)
+          .set({ status: "syncing", updatedAt: new Date() })
+          .where(and(eq(chatbotKnowledgeSource.tenantId, tenantId), eq(chatbotKnowledgeSource.projectId, projectId)))
+        await db
+          .update(chatbot)
+          .set({
+            runtimeStatus: "syncing",
+            lastSyncError: "Embedding preset changed. Reindex published knowledge.",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.projectId, projectId)))
+      }
       return mapProjectAiConfigDto(saved, appConfig, projectId)
     },
     async getProjectAiSecrets(projectId) {
@@ -1012,7 +1098,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
           status: "active",
           agentKey: createAgentKey(chatbotId),
           knowledgeNamespace: createKnowledgeNamespace(chatbotId),
-          runtimeStatus: "ready",
+          runtimeStatus: "provisioning",
         })
         .returning()
       for (const connector of createDefaultConnectors(row.id, timestamp.toISOString())) {
@@ -1064,6 +1150,19 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         .returning()
       return row ? mapChatbot(row) : null
     },
+    async updateChatbotRuntimeStatus(id, input) {
+      const tenantId = await ensureTenantId()
+      const [row] = await db
+        .update(chatbot)
+        .set({
+          runtimeStatus: input.runtimeStatus,
+          lastSyncError: input.lastSyncError !== undefined ? input.lastSyncError : undefined,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, id)))
+        .returning()
+      return row ? mapChatbot(row) : null
+    },
     async archiveChatbot(id) {
       const tenantId = await ensureTenantId()
       const [row] = await db
@@ -1077,7 +1176,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
       const tenantId = await ensureTenantId()
       const [row] = await db
         .update(chatbot)
-        .set({ status: "active", runtimeStatus: "ready", updatedAt: new Date() })
+        .set({ status: "active", runtimeStatus: "provisioning", updatedAt: new Date() })
         .where(and(eq(chatbot.tenantId, tenantId), eq(chatbot.id, id)))
         .returning()
       return row ? mapChatbot(row) : null
@@ -1245,10 +1344,10 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
             documentId: input.documentId,
             sourceVersionId: input.sourceVersionId,
             chunkIndex: index,
-            section: "body",
+            section: chunk.section,
             content: chunk.content,
-            metadata: {},
-            embedding: serializePgVector(embeddings[index] ?? []),
+            metadata: chunk.metadata,
+            ...embeddingColumnValues(embeddings[index] ?? [], input.embed.dimension),
             embeddingModel: input.embed.model,
             embeddingDimension: input.embed.dimension,
           })
@@ -1272,7 +1371,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         await db
           .update(chatbot)
           .set({
-            runtimeStatus: "ready",
+            runtimeStatus: "live",
             lastIndexedContentVersionId: input.sourceVersionId,
             lastSyncError: null,
             updatedAt: indexedAt,
@@ -1365,12 +1464,14 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
       const runtime = await resolveProjectRuntimeProviders(chatbotRow.projectId, runtimeContext)
       const [queryEmbedding] = await runtime.embeddingProvider.embedTexts([input.message])
       const queryVector = serializePgVector(queryEmbedding)
+      const vectorColumn = vectorDistanceSql(runtime.embeddingProvider.dimension)
       const vectorResult = await pool.query<{
         chunk_id: string
         knowledge_source_id: string
         title: string
         content: string
         source_version_id: string
+        source_type: PlatformContentType
         distance: string | number
       }>(
         `select c.id as chunk_id,
@@ -1378,7 +1479,8 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
                 d.title,
                 c.content,
                 c.source_version_id,
-                c.embedding <=> $3::vector as distance
+                d.source_type,
+                ${vectorColumn.column} <=> $3::vector as distance
            from chatbot_knowledge_source ks
            join rag_document d on d.source_version_id = ks.source_version_id
            join rag_chunk c on c.source_version_id = ks.source_version_id
@@ -1386,9 +1488,11 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
             and ks.chatbot_id = $2
             and ks.status = 'indexed'
             and d.status = 'indexed'
-          order by c.embedding <=> $3::vector
+            and c.embedding_dimension = $5
+            and ${vectorColumn.condition}
+          order by ${vectorColumn.column} <=> $3::vector
           limit $4`,
-        [tenantId, chatbotId, queryVector, topK],
+        [tenantId, chatbotId, queryVector, topK, runtime.embeddingProvider.dimension],
       )
       const vectorSources: PlatformSourceDto[] = vectorResult.rows
         .map((row) => ({
@@ -1397,6 +1501,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
           title: row.title,
           excerpt: excerpt(row.content),
           score: Number((1 - Number(row.distance)).toFixed(6)),
+          sourceType: row.source_type,
         }))
         .filter((source) => source.score >= MIN_VECTOR_RELEVANCE_SCORE)
 
@@ -1408,20 +1513,23 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
           title: string
           content: string
           source_version_id: string
+          source_type: PlatformContentType
         }>(
           `select c.id as chunk_id,
                   ks.id as knowledge_source_id,
                   d.title,
                   c.content,
-                  c.source_version_id
+                  c.source_version_id,
+                  d.source_type
              from chatbot_knowledge_source ks
              join rag_document d on d.source_version_id = ks.source_version_id
              join rag_chunk c on c.source_version_id = ks.source_version_id
             where ks.tenant_id = $1
               and ks.chatbot_id = $2
               and ks.status = 'indexed'
-              and d.status = 'indexed'`,
-          [tenantId, chatbotId],
+              and d.status = 'indexed'
+              and c.embedding_dimension = $3`,
+          [tenantId, chatbotId, runtime.embeddingProvider.dimension],
         )
         sources = searchChunksByKeywords(
           keywordResult.rows.map((row) => ({
@@ -1431,6 +1539,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
             content: row.content,
             title: row.title,
             sourceVersionId: row.source_version_id,
+            sourceType: row.source_type,
             embedding: queryEmbedding,
           })),
           input.message,
@@ -1447,6 +1556,7 @@ export function createDrizzleProductionChatbotStore(db: AppDb, pool: Pool, optio
         chatbotId,
         answerProvider: runtime.answerProvider as PlatformAnswerProvider | undefined,
         embeddingModel: runtime.embeddingProvider.model,
+        llmConfig: runtime.llmConfig,
       })
     },
     async listConnectors(chatbotId) {
@@ -1716,12 +1826,20 @@ function mapChatbot(row: typeof chatbot.$inferSelect): ChatbotDto {
     status: row.status as ChatbotDto["status"],
     agentKey: row.agentKey,
     knowledgeNamespace: row.knowledgeNamespace,
-    runtimeStatus: row.runtimeStatus as ChatbotDto["runtimeStatus"],
+    runtimeStatus: normalizeRuntimeStatus(row.runtimeStatus),
     lastIndexedContentVersionId: row.lastIndexedContentVersionId,
     lastSyncError: row.lastSyncError,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+function normalizeRuntimeStatus(value: string): ChatbotDto["runtimeStatus"] {
+  if (value === "ready") return "live"
+  if (["provisioning", "live", "syncing", "error", "paused"].includes(value)) {
+    return value as ChatbotDto["runtimeStatus"]
+  }
+  return "provisioning"
 }
 
 function mapContent(row: typeof contentItem.$inferSelect, chatbotId: string): PlatformContentItemDto {
@@ -1863,8 +1981,42 @@ function createWebsiteDeployment(chatbotId: string, domain: string | null | unde
 }
 
 function chunkContent(title: string, body: string) {
-  const text = `${title}\n\n${body}`.trim()
-  return [{ id: createUuidV7(), content: text }]
+  const words = body.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return [{ id: createUuidV7(), content: title.trim(), section: "body", metadata: { sourceTitle: title, chunkIndex: 0 } }]
+
+  const targetTokens = 475
+  const overlapTokens = 90
+  const chunks: Array<{ id: string; content: string; section: string; metadata: Record<string, unknown> }> = []
+  for (let start = 0, chunkIndex = 0; start < words.length; start += targetTokens - overlapTokens, chunkIndex += 1) {
+    const end = Math.min(words.length, start + targetTokens)
+    const content = `${title}\n\n${words.slice(start, end).join(" ")}`.trim()
+    chunks.push({
+      id: createUuidV7(),
+      content,
+      section: "body",
+      metadata: {
+        sourceTitle: title,
+        chunkIndex,
+        tokenStart: start,
+        tokenEnd: end,
+      },
+    })
+    if (end === words.length) break
+  }
+  return chunks
+}
+
+function embeddingColumnValues(embedding: number[], dimension: number) {
+  const vector = serializePgVector(embedding)
+  if (dimension === 384) return { embedding384: vector, embedding768: null, embedding: null }
+  if (dimension === 768) return { embedding384: null, embedding768: vector, embedding: null }
+  return { embedding384: null, embedding768: null, embedding: vector }
+}
+
+function vectorDistanceSql(dimension: number) {
+  if (dimension === 384) return { column: "c.embedding_384", condition: "c.embedding_384 is not null" }
+  if (dimension === 768) return { column: "c.embedding_768", condition: "c.embedding_768 is not null" }
+  return { column: "c.embedding", condition: "c.embedding is not null" }
 }
 
 function searchChunksByEmbedding(sourceChunks: ChunkRecord[], queryEmbedding: number[], topK: number): PlatformSourceDto[] {
@@ -1884,6 +2036,7 @@ function searchChunksByEmbedding(sourceChunks: ChunkRecord[], queryEmbedding: nu
       title: chunk.title,
       excerpt: excerpt(chunk.content),
       score: Number(score.toFixed(6)),
+      sourceType: chunk.sourceType,
     }))
 }
 
@@ -1906,6 +2059,7 @@ function searchChunksByKeywords(sourceChunks: ChunkRecord[], query: string, topK
       title: chunk.title,
       excerpt: excerpt(chunk.content),
       score: Number((hits / terms.length).toFixed(6)),
+      sourceType: chunk.sourceType,
     }))
 }
 
@@ -1931,8 +2085,22 @@ async function composePlatformAnswer(input: {
   chatbotId: string
   answerProvider?: PlatformAnswerProvider
   embeddingModel?: string
+  llmConfig?: ProjectLlmRuntimeConfig
 }): Promise<PlatformChatAnswerDto> {
-  const safeSources = isSensitiveQuery(input.message) ? input.sources.filter((source) => sourceSupportsSensitiveQuery(input.message, source)) : input.sources
+  const safeSources = filterSupportedSources(
+    input.message,
+    isSensitiveQuery(input.message)
+      ? input.sources.filter((source) => sourceSupportsSensitiveQuery(input.message, source))
+      : input.sources,
+  )
+  const policy = buildAgentCapabilityPolicy({
+    chatbotName: input.chatbot.name,
+    purpose: input.chatbot.purpose,
+    channel: input.channel,
+    sourceIds: safeSources.map((source) => source.chunkId),
+    capabilities: input.chatbot.capabilities,
+    indexedSourceTypes: safeSources.map((source) => source.sourceType as AgentSourceType),
+  })
   if (safeSources.length === 0) {
     return {
       answer: "I do not have an approved source for that yet. Add verified content, publish it to this chatbot, then test again.",
@@ -1941,12 +2109,28 @@ async function composePlatformAnswer(input: {
       channel: input.channel,
       retrieval: { topK: input.topK, model: input.embeddingModel ?? "approved-source-search" },
       confidence: "none",
-      actionTrace: { reason: "no_approved_source", channel: input.channel },
+      actionTrace: {
+        reason: "no_approved_source",
+        channel: input.channel,
+        policyVersion: policy.policyVersion,
+        capabilityIds: policy.capabilityIds,
+        toolsEnabled: policy.toolsEnabled,
+        toolsDenied: policy.toolsDenied,
+        sourceIds: [],
+      },
     }
   }
 
   const providerResult = input.answerProvider
-    ? await input.answerProvider({ message: input.message, sources: safeSources, chatbot: input.chatbot, chatbotId: input.chatbotId, channel: input.channel })
+    ? await input.answerProvider({
+        message: input.message,
+        sources: safeSources,
+        chatbot: input.chatbot,
+        chatbotId: input.chatbotId,
+        channel: input.channel,
+        policy,
+        llmConfig: input.llmConfig,
+      })
     : null
 
   return {
@@ -1961,6 +2145,10 @@ async function composePlatformAnswer(input: {
       channel: input.channel,
       sourceIds: safeSources.map((source) => source.chunkId),
       model: providerResult?.model ?? "approved-source-search",
+      policyVersion: policy.policyVersion,
+      capabilityIds: policy.capabilityIds,
+      toolsEnabled: policy.toolsEnabled,
+      toolsDenied: policy.toolsDenied,
       ...(providerResult?.actionTrace ?? {}),
     },
     agentTraceId: providerResult?.agentTraceId,
@@ -1975,6 +2163,80 @@ function sourceSupportsSensitiveQuery(query: string, source: PlatformSourceDto) 
   const queryTerms = sensitiveTerms(query)
   const sourceText = `${source.title} ${source.excerpt}`.toLowerCase()
   return queryTerms.some((term) => sourceText.includes(term))
+}
+
+function filterSupportedSources(query: string, sources: PlatformSourceDto[]) {
+  const terms = meaningfulQueryTerms(query)
+  if (terms.length === 0) return []
+  const requiredHits = Math.min(2, terms.length)
+
+  return sources.filter((source) => {
+    if (source.score >= STRONG_VECTOR_RELEVANCE_SCORE) return true
+    const sourceText = `${source.title} ${source.excerpt}`.toLowerCase()
+    const hits = terms.filter((term) => sourceContainsTerm(sourceText, term)).length
+    return hits >= requiredHits
+  })
+}
+
+function sourceContainsTerm(sourceText: string, term: string) {
+  return termVariants(term).some((variant) => sourceText.includes(variant))
+}
+
+function termVariants(term: string) {
+  const variants = new Set([term, `${term}s`, `${term}ing`, `${term}ings`])
+  if (term.endsWith("e") && term.length > 3) {
+    const stem = term.slice(0, -1)
+    variants.add(`${stem}ing`)
+    variants.add(`${stem}ings`)
+  }
+  if (term.endsWith("y") && term.length > 3) variants.add(`${term.slice(0, -1)}ies`)
+  if (term.endsWith("s") && term.length > 3) variants.add(term.slice(0, -1))
+  return [...variants]
+}
+
+function meaningfulQueryTerms(query: string) {
+  const stopwords = new Set([
+    "about",
+    "after",
+    "again",
+    "also",
+    "and",
+    "any",
+    "are",
+    "can",
+    "could",
+    "current",
+    "does",
+    "estate",
+    "for",
+    "from",
+    "have",
+    "how",
+    "into",
+    "now",
+    "our",
+    "project",
+    "properties",
+    "property",
+    "realty",
+    "right",
+    "should",
+    "that",
+    "the",
+    "this",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "would",
+    "you",
+  ])
+
+  return [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) ?? [])]
+    .filter((token) => token.length >= 3 && !stopwords.has(token))
 }
 
 function sensitiveTerms(query: string) {

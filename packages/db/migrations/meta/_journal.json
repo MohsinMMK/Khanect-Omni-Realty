@@ -43,6 +43,20 @@
       "when": 1782400000000,
       "tag": "0005_better_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782500000000,
+      "tag": "0006_chatbot_runtime_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0007_embedding_presets",
+      "breakpoints": true
     }
   ]
 }

@@ -10,15 +10,25 @@ import {
   CommandShortcut,
 } from "@workspace/ui/components/command"
 import { Kbd, KbdGroup } from "@workspace/ui/components/kbd"
-import { FileText, Globe2, Inbox, LayoutDashboard, Settings } from "lucide-react"
+import {
+  Globe2,
+  Inbox,
+  LayoutDashboard,
+  Settings,
+  type LucideIcon,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { navItems } from "./constants"
 import type { Page } from "./types"
 
-const commandItems: Array<{ page: Page; label: string; icon: typeof FileText; shortcut: string }> = [
+const commandItems: Array<{
+  page: Page
+  label: string
+  icon: LucideIcon
+  shortcut: string
+}> = [
   { page: "projects", label: "Projects", icon: LayoutDashboard, shortcut: "P" },
-  { page: "content", label: "Content", icon: FileText, shortcut: "C" },
   { page: "conversations", label: "Inbox", icon: Inbox, shortcut: "I" },
   { page: "connect", label: "Connect", icon: Globe2, shortcut: "N" },
   { page: "settings", label: "Settings", icon: Settings, shortcut: "S" },
@@ -50,7 +60,12 @@ export function AdminCommandPalette({
 
   return (
     <>
-      <CommandDialog open={open} onOpenChange={setOpen} title="Command palette" description="Jump to admin pages">
+      <CommandDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Command palette"
+        description="Jump to admin pages"
+      >
         <Command>
           <CommandInput placeholder="Search pages..." />
           <CommandList>

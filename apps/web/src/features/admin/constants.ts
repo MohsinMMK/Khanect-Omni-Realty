@@ -1,4 +1,4 @@
-import { FileText, Globe2, Inbox, LayoutDashboard } from "lucide-react"
+import { Globe2, Inbox, LayoutDashboard, type LucideIcon } from "lucide-react"
 
 import type { NewBotStepKey, Page } from "./types"
 
@@ -11,9 +11,8 @@ export const contentTypeOptions = [
   { value: "general", label: "General note" },
 ]
 
-export const navItems: Array<{ key: Page; label: string; icon: typeof FileText }> = [
+export const navItems: Array<{ key: Page; label: string; icon: LucideIcon }> = [
   { key: "projects", label: "Projects", icon: LayoutDashboard },
-  { key: "content", label: "Content", icon: FileText },
   { key: "conversations", label: "Inbox", icon: Inbox },
   { key: "connect", label: "Connect", icon: Globe2 },
 ]
@@ -24,8 +23,24 @@ export const sampleContent = {
   body: "Marina Heights allows cats and small dogs. Pet owners must register pets with building management before move-in. The tower is a five-minute walk from Dubai Marina tram.",
 }
 
-export const newBotSteps: Array<{ key: NewBotStepKey; title: string; description: string }> = [
-  { key: "create", title: "Setup", description: "Create the bot and add its first source documents." },
-  { key: "test", title: "Test", description: "Ask a representative visitor question before using it." },
-  { key: "finish", title: "Finish", description: "Review the setup and return to the content page." },
+export const newBotSteps: Array<{
+  key: NewBotStepKey
+  title: string
+  description: string
+}> = [
+  {
+    key: "create",
+    title: "Setup",
+    description: "Create the bot and add its first source documents.",
+  },
+  {
+    key: "test",
+    title: "Test",
+    description: "Ask a representative visitor question before using it.",
+  },
+  {
+    key: "finish",
+    title: "Finish",
+    description: "Review the setup and return to the content page.",
+  },
 ]

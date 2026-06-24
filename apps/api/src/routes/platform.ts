@@ -1,6 +1,12 @@
 import type { AppConfig } from "@workspace/config"
-import type { EmbeddingProviderMode } from "@workspace/core"
-import type { ProductionChatbotStore } from "@workspace/db"
+import {
+  AGENT_CAPABILITY_POLICY_VERSION,
+  validateAgentCapabilities,
+  type AgentSourceType,
+  type AgentToolId,
+  type EmbeddingProviderMode,
+} from "@workspace/core"
+import type { ChatbotDto, ProductionChatbotStore } from "@workspace/db"
 import type { ConnectorChannel, ConnectorStatus } from "@workspace/db"
 import type { FastifyPluginAsync } from "fastify"
 
@@ -126,10 +132,19 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
 
     app.post("/internal/agent-tools/:toolName", async (request, reply) => {
       const { toolName } = request.params as { toolName: string }
-      if (!["capture_lead", "request_human_handoff", "request_appointment", "get_business_contact"].includes(toolName)) {
+      if (!["capture_lead", "request_human_handoff", "request_appointment", "get_business_contact", "recommend_property"].includes(toolName)) {
         return reply.status(404).send({ error: { code: "AGENT_TOOL_NOT_FOUND", message: "Agent tool not found." } })
       }
       const body = (request.body ?? {}) as Record<string, unknown>
+      const policy = body.policy
+      if (isPolicyToolList(policy) && !policy.toolsEnabled.includes(toolName as AgentToolId)) {
+        return reply.status(403).send({
+          error: {
+            code: "AGENT_TOOL_DENIED_BY_POLICY",
+            message: "This tool is not enabled by the chatbot capability policy.",
+          },
+        })
+      }
       const action = await options.store.recordAgentToolAction({
         toolName,
         payload: body,
@@ -210,7 +225,8 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       if (!config) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
       const secrets = await options.store.getProjectAiSecrets(projectId)
       const probe = await probeProjectEmbedding(secrets, options.appConfig)
-      return { ...config, embedding: { ...config.embedding, probe } }
+      const requiresReindex = await projectRequiresKnowledgeReindex(options.store, projectId)
+      return { ...config, embedding: { ...config.embedding, requiresReindex: config.embedding.requiresReindex || requiresReindex, probe } }
     })
 
     app.patch("/admin/projects/:projectId/ai-config", async (request, reply) => {
@@ -231,9 +247,20 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
       }>
 
-      const updated = await options.store.updateProjectAiConfig(projectId, body)
+      let updated
+      try {
+        updated = await options.store.updateProjectAiConfig(projectId, body)
+      } catch (error) {
+        return reply.status(400).send({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: error instanceof Error ? error.message : "Project AI config is invalid.",
+          },
+        })
+      }
       if (!updated) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
-      return { config: updated }
+      const requiresReindex = await projectRequiresKnowledgeReindex(options.store, projectId)
+      return { config: { ...updated, embedding: { ...updated.embedding, requiresReindex: updated.embedding.requiresReindex || requiresReindex } } }
     })
 
     app.post("/admin/projects/:projectId/ai-config/embedding/test", async (request, reply) => {
@@ -289,7 +316,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         capabilities: body.capabilities,
       })
       if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Project not found" } })
-      return { chatbot }
+      return { chatbot: await refreshChatbotRuntimeStatus(options, chatbot) }
     })
 
     app.get("/admin/chatbots/:chatbotId", async (request, reply) => {
@@ -329,7 +356,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       const { chatbotId } = request.params as { chatbotId: string }
       const chatbot = await options.store.unarchiveChatbot(chatbotId)
       if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
-      return { chatbot }
+      return { chatbot: await refreshChatbotRuntimeStatus(options, chatbot) }
     })
 
     app.delete("/admin/chatbots/:chatbotId", async (request, reply) => {
@@ -429,6 +456,92 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       const chatbot = await options.store.getChatbot(chatbotId)
       if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
       return { items: await options.store.listKnowledge(chatbotId) }
+    })
+
+    app.post("/admin/chatbots/:chatbotId/knowledge/reindex", async (request, reply) => {
+      const { chatbotId } = request.params as { chatbotId: string }
+      const chatbot = await options.store.getChatbot(chatbotId)
+      if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
+      const publishedItems = (await options.store.listContent(chatbotId)).filter((item) => item.status === "published")
+      const results = []
+      for (const item of publishedItems) {
+        const result = await options.store.publishContent(chatbotId, item.id)
+        if (!result) continue
+        if (options.ragIndexEnqueuer) {
+          await options.ragIndexEnqueuer({
+            chatbotId,
+            contentItemId: item.id,
+            contentVersionId: result.source.sourceVersionId,
+            documentId: result.documentId,
+          })
+        }
+        results.push({
+          contentItemId: item.id,
+          sourceVersionId: result.source.sourceVersionId,
+          documentId: result.documentId,
+          indexing: true,
+        })
+      }
+      return {
+        chatbotId,
+        reindexed: results.length,
+        items: results,
+      }
+    })
+
+    app.get("/admin/chatbots/:chatbotId/runtime", async (request, reply) => {
+      const { chatbotId } = request.params as { chatbotId: string }
+      const chatbot = await options.store.getChatbot(chatbotId)
+      if (!chatbot) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
+      const config = await options.store.getProjectAiConfig(chatbot.projectId)
+      const indexedSourceTypes = (await options.store.listKnowledge(chatbotId))
+        .filter((source) => source.status === "indexed")
+        .map((source) => source.sourceType as AgentSourceType)
+      const capabilities = validateAgentCapabilities({
+        capabilities: chatbot.capabilities,
+        indexedSourceTypes,
+      })
+      const agno = await probeAgnoRuntime(options.appConfig)
+      const runtimeStatus = chatbot.status === "archived"
+        ? "paused"
+        : agno.enabled && agno.status !== "ok"
+          ? "error"
+          : chatbot.runtimeStatus === "provisioning"
+            ? "live"
+            : chatbot.runtimeStatus
+      const lastSyncError = agno.enabled && agno.status !== "ok" ? agno.detail : chatbot.lastSyncError
+      const updated = runtimeStatus !== chatbot.runtimeStatus || lastSyncError !== chatbot.lastSyncError
+        ? await options.store.updateChatbotRuntimeStatus(chatbot.id, { runtimeStatus, lastSyncError })
+        : chatbot
+
+      return {
+        chatbotId,
+        runtimeStatus: updated?.runtimeStatus ?? runtimeStatus,
+        agno,
+        model: {
+          source: config?.llm.source ?? "platform",
+          name: config?.llm.effectiveModel ?? options.appConfig.ai.llmModel,
+        },
+        embedding: {
+          source: config?.embedding.source ?? "platform",
+          provider: config?.embedding.provider ?? options.appConfig.ai.embeddingProvider,
+          model: config?.embedding.model ?? options.appConfig.ai.embeddingModel,
+          dimension: config?.embedding.dimension ?? options.appConfig.ai.embeddingDimension,
+          status: config?.embedding.status ?? "ok",
+          requiresReindex: config?.embedding.requiresReindex ?? false,
+        },
+        latest: {
+          agentTraceId: null,
+          lastSyncError: updated?.lastSyncError ?? lastSyncError ?? null,
+        },
+        capabilities: {
+          enabled: capabilities.enabled,
+          availableTools: capabilities.availableTools,
+          missingRequirements: capabilities.missingRequirements,
+          ready: capabilities.ready,
+        },
+        policyVersion: AGENT_CAPABILITY_POLICY_VERSION,
+      }
     })
 
     app.post("/admin/chatbots/:chatbotId/test-message", async (request, reply) => {
@@ -675,6 +788,68 @@ function createWidgetRateLimiter(options: PlatformRoutesOptions["widgetRateLimit
   }
 }
 
+async function refreshChatbotRuntimeStatus(options: PlatformRoutesOptions, chatbot: ChatbotDto) {
+  if (chatbot.status === "archived") return chatbot
+  const agno = await probeAgnoRuntime(options.appConfig)
+  const runtimeStatus: ChatbotDto["runtimeStatus"] = agno.enabled && agno.status !== "ok" ? "error" : "live"
+  const lastSyncError = agno.enabled && agno.status !== "ok" ? agno.detail : null
+  return await options.store.updateChatbotRuntimeStatus(chatbot.id, { runtimeStatus, lastSyncError }) ?? {
+    ...chatbot,
+    runtimeStatus,
+    lastSyncError,
+  }
+}
+
+async function projectRequiresKnowledgeReindex(store: ProductionChatbotStore, projectId: string) {
+  const chatbots = await store.listChatbots(projectId)
+  for (const chatbot of chatbots) {
+    if (chatbot.runtimeStatus === "syncing" || chatbot.runtimeStatus === "error") return true
+    const knowledge = await store.listKnowledge(chatbot.id)
+    if (knowledge.some((source) => source.status !== "indexed")) return true
+  }
+  return false
+}
+
+async function probeAgnoRuntime(config: AppConfig) {
+  if (!config.agno.enabled) {
+    return {
+      enabled: false,
+      status: "disabled" as const,
+      runtime: null,
+      detail: "AGNO_ENABLED is false.",
+    }
+  }
+
+  try {
+    const response = await fetch(new URL("/health", config.agno.agentUrl), {
+      signal: AbortSignal.timeout(3_000),
+    })
+    if (!response.ok) {
+      return {
+        enabled: true,
+        status: "unavailable" as const,
+        runtime: null,
+        detail: `Agno health returned ${response.status}.`,
+      }
+    }
+    const body = (await response.json()) as Partial<{ status: string; runtime: string }>
+    const ok = body.status === "ok" && body.runtime === "agno"
+    return {
+      enabled: true,
+      status: ok ? ("ok" as const) : ("unavailable" as const),
+      runtime: body.runtime ?? null,
+      detail: ok ? undefined : "Agno health response did not report an ok agno runtime.",
+    }
+  } catch (error) {
+    return {
+      enabled: true,
+      status: "unavailable" as const,
+      runtime: null,
+      detail: error instanceof Error ? error.message : "Agno health check failed.",
+    }
+  }
+}
+
 function originAllowed(origin: string | undefined, allowedDomains: string[]) {
   if (!origin || allowedDomains.length === 0) return true
   try {
@@ -747,6 +922,16 @@ function isConnectorChannel(value: string): value is ConnectorChannel {
 
 function isConnectorStatus(value: string): value is ConnectorStatus {
   return ["active", "not_configured", "needs_credentials", "error", "paused"].includes(value)
+}
+
+function isPolicyToolList(value: unknown): value is { toolsEnabled: AgentToolId[] } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "toolsEnabled" in value &&
+      Array.isArray(value.toolsEnabled) &&
+      value.toolsEnabled.every((tool) => typeof tool === "string"),
+  )
 }
 
 function domainAllowed(hostname: string, allowedDomains: string[]) {

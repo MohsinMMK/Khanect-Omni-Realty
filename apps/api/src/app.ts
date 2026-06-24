@@ -83,6 +83,7 @@ export async function buildApi(options: BuildApiOptions = {}) {
     answerProvider: createAgnoAnswerProvider(config) ?? createConfiguredAnswerProvider(config),
     appConfig: config,
     encryptionKey: config.auth.encryptionKey,
+    answerProviderPriority: config.agno.enabled ? "default" : "project",
   })
   const ragIndexEnqueuer = options.ragIndexEnqueuer ?? createRagIndexEnqueuer(config, productionChatbotStore)
   let betterAuthRuntime: ReturnType<typeof createBetterAuthRuntime> | null = null

@@ -1,5 +1,16 @@
 import { z } from "zod"
 
+type EmbeddingProviderMode = "stub" | "local" | "openai"
+
+const STUB_EMBEDDING_MODEL = "stub/hash-v1"
+const BGE_M3_EMBEDDING_MODEL = "BAAI/bge-m3"
+const BGE_SMALL_EN_V15_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+const BGE_BASE_EN_V15_EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
+const OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+const EMBEDDING_DIMENSION = 1024
+const BGE_SMALL_EN_V15_DIMENSION = 384
+const BGE_BASE_EN_V15_DIMENSION = 768
+
 const booleanFromString = z.preprocess((value) => {
   if (typeof value !== "string") return value
 
@@ -74,8 +85,8 @@ const envSchema = z.object({
   EMBEDDER_VERSION: z.string().default("0.1.0"),
   EMBEDDING_PROVIDER: z.enum(["stub", "local", "openai"]).optional(),
   EMBEDDER_URL: optionalString.pipe(z.string().url().optional()),
-  EMBEDDING_MODEL: z.string().default("BAAI/bge-m3"),
-  EMBEDDING_DIMENSION: z.coerce.number().int().positive().default(1024),
+  EMBEDDING_MODEL: z.string().default(BGE_BASE_EN_V15_EMBEDDING_MODEL),
+  EMBEDDING_DIMENSION: z.coerce.number().int().positive().optional(),
   EMBEDDING_ENABLED: booleanFromString,
   OPENAI_API_KEY: optionalString,
   OPENAI_BASE_URL: optionalString.pipe(z.string().url().optional()),
@@ -185,7 +196,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
       embeddingProvider: resolveEmbeddingProvider(parsed),
       embedderUrl: parsed.EMBEDDER_URL,
       embeddingModel: parsed.EMBEDDING_MODEL,
-      embeddingDimension: parsed.EMBEDDING_DIMENSION,
+      embeddingDimension: resolveConfiguredEmbeddingDimension(parsed),
       openAiApiKey: resolveOpenAiApiKey(parsed),
       openAiBaseUrl: parsed.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
       openAiEmbeddingModel: resolveOpenAiEmbeddingModel(parsed),
@@ -239,7 +250,7 @@ export function loadConfig(env: NodeJS.ProcessEnv | RawEnv = process.env) {
   } as const
 }
 
-function resolveEmbeddingProvider(parsed: z.output<typeof envSchema>) {
+function resolveEmbeddingProvider(parsed: z.output<typeof envSchema>): EmbeddingProviderMode {
   if (parsed.EMBEDDING_PROVIDER) return parsed.EMBEDDING_PROVIDER
   if (parsed.EMBEDDER_URL) return "local" as const
   return "stub" as const
@@ -251,10 +262,22 @@ function resolveOpenAiApiKey(parsed: z.output<typeof envSchema>) {
 }
 
 function resolveOpenAiEmbeddingModel(parsed: z.output<typeof envSchema>) {
-  if (parsed.EMBEDDING_MODEL === "BAAI/bge-m3" || parsed.EMBEDDING_MODEL === "stub/hash-v1") {
-    return "text-embedding-3-small"
+  if (
+    parsed.EMBEDDING_MODEL === BGE_M3_EMBEDDING_MODEL ||
+    parsed.EMBEDDING_MODEL === BGE_BASE_EN_V15_EMBEDDING_MODEL ||
+    parsed.EMBEDDING_MODEL === STUB_EMBEDDING_MODEL
+  ) {
+    return OPENAI_EMBEDDING_MODEL
   }
   return parsed.EMBEDDING_MODEL
+}
+
+function resolveConfiguredEmbeddingDimension(parsed: z.output<typeof envSchema>) {
+  const provider = resolveEmbeddingProvider(parsed)
+  if (parsed.EMBEDDING_DIMENSION) return parsed.EMBEDDING_DIMENSION
+  if (provider === "stub" || provider === "openai") return EMBEDDING_DIMENSION
+  if (parsed.EMBEDDING_MODEL === BGE_SMALL_EN_V15_EMBEDDING_MODEL) return BGE_SMALL_EN_V15_DIMENSION
+  return BGE_BASE_EN_V15_DIMENSION
 }
 
 function resolveEmbeddingEnabled(parsed: z.output<typeof envSchema>) {

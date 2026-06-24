@@ -3,6 +3,7 @@ import {
   buildProjectAiConfigDto,
   decryptSecret,
   encryptSecret,
+  getLocalEmbeddingPresetByModel,
   type EmbeddingProvider,
   type EmbeddingProviderMode,
   type ProjectAiConfigDto,
@@ -11,6 +12,8 @@ import {
   type ProjectAiSecrets,
   type ProjectAiSource,
   type ProjectAnswerProvider,
+  type ProjectLlmRuntimeConfig,
+  resolveProjectLlmRuntime,
 } from "@workspace/core"
 import { and, eq } from "drizzle-orm"
 import type { Pool } from "pg"
@@ -23,6 +26,8 @@ interface RuntimeAnswerProviderInput {
   chatbot: unknown
   chatbotId: string
   channel: string
+  policy?: unknown
+  llmConfig?: ProjectLlmRuntimeConfig
 }
 
 interface RuntimeAnswerProviderResult {
@@ -46,6 +51,7 @@ export interface ProjectAiRecord {
   embeddingApiKey?: string
   embedderUrl?: string | null
   embeddingModel?: string | null
+  embeddingDimension?: number | null
   updatedAt: string
 }
 
@@ -72,6 +78,7 @@ export interface ProjectAiStoreContext {
   projectAiResolver?: ProjectAiRuntimeResolver
   defaultEmbeddingProvider: EmbeddingProvider
   defaultAnswerProvider?: RuntimeAnswerProvider
+  answerProviderPriority?: "project" | "default"
 }
 
 function toSecrets(record: ProjectAiRecord | null, projectId: string): ProjectAiSecrets | null {
@@ -87,6 +94,7 @@ function toSecrets(record: ProjectAiRecord | null, projectId: string): ProjectAi
     embeddingApiKey: record.embeddingApiKey,
     embedderUrl: record.embedderUrl ?? undefined,
     embeddingModel: record.embeddingModel ?? undefined,
+    embeddingDimension: record.embeddingDimension ?? undefined,
   }
 }
 
@@ -132,6 +140,16 @@ export function applyProjectAiUpdate(
     if (input.embedding.provider !== undefined) next.embeddingProvider = input.embedding.provider
     if (input.embedding.embedderUrl !== undefined) next.embedderUrl = input.embedding.embedderUrl
     if (input.embedding.model !== undefined) next.embeddingModel = input.embedding.model
+    if (next.embeddingSource === "project" && next.embeddingProvider === "local") {
+      const preset = getLocalEmbeddingPresetByModel(next.embeddingModel)
+      if (!preset) {
+        throw new Error("Unsupported local embedding model. Choose BGE small or BGE base.")
+      }
+      next.embeddingModel = preset.model
+      next.embeddingDimension = preset.dimension
+    } else if (input.embedding.dimension !== undefined) {
+      next.embeddingDimension = input.embedding.dimension
+    }
     if (input.embedding.apiKey !== undefined) {
       const trimmed = input.embedding.apiKey?.trim()
       next.embeddingApiKey = trimmed
@@ -165,6 +183,7 @@ export function mapRowToProjectAiRecord(row: {
   embeddingApiKeyEncrypted: string | null
   embedderUrl: string | null
   embeddingModel: string | null
+  embeddingDimension: number | null
   updatedAt: Date
 }): ProjectAiRecord {
   return {
@@ -178,6 +197,7 @@ export function mapRowToProjectAiRecord(row: {
     embeddingApiKey: row.embeddingApiKeyEncrypted ?? undefined,
     embedderUrl: row.embedderUrl,
     embeddingModel: row.embeddingModel,
+    embeddingDimension: row.embeddingDimension,
     updatedAt: row.updatedAt.toISOString(),
   }
 }
@@ -215,6 +235,7 @@ export async function upsertProjectAiRecord(
       embeddingApiKeyEncrypted: record.embeddingApiKey ?? null,
       embedderUrl: record.embedderUrl ?? null,
       embeddingModel: record.embeddingModel ?? null,
+      embeddingDimension: record.embeddingDimension ?? null,
       updatedAt: new Date(record.updatedAt),
     })
     .onConflictDoUpdate({
@@ -229,6 +250,7 @@ export async function upsertProjectAiRecord(
         embeddingApiKeyEncrypted: record.embeddingApiKey ?? null,
         embedderUrl: record.embedderUrl ?? null,
         embeddingModel: record.embeddingModel ?? null,
+        embeddingDimension: record.embeddingDimension ?? null,
         updatedAt: new Date(record.updatedAt),
       },
     })
@@ -265,19 +287,21 @@ function wrapDefaultAnswerProvider(provider: RuntimeAnswerProvider): RuntimeAnsw
 export async function resolveProjectRuntimeProviders(
   projectId: string,
   context: ProjectAiStoreContext,
-): Promise<{ embeddingProvider: EmbeddingProvider; answerProvider?: RuntimeAnswerProvider }> {
+): Promise<{ embeddingProvider: EmbeddingProvider; answerProvider?: RuntimeAnswerProvider; llmConfig?: ProjectLlmRuntimeConfig }> {
   if (context.projectAiResolver) {
-    const [embeddingProvider, projectAnswerProvider] = await Promise.all([
+    const [embeddingProvider, projectAnswerProvider, llmConfig] = await Promise.all([
       context.projectAiResolver.resolveEmbeddingProvider(projectId),
       context.projectAiResolver.resolveAnswerProvider(projectId),
+      context.projectAiResolver.resolveLlmConfig(projectId),
     ])
+    const defaultProvider = context.defaultAnswerProvider ? wrapDefaultAnswerProvider(context.defaultAnswerProvider) : undefined
+    const projectProvider = projectAnswerProvider ? wrapProjectAnswerProvider(projectAnswerProvider) : undefined
     return {
       embeddingProvider,
-      answerProvider: projectAnswerProvider
-        ? wrapProjectAnswerProvider(projectAnswerProvider)
-        : context.defaultAnswerProvider
-          ? wrapDefaultAnswerProvider(context.defaultAnswerProvider)
-          : undefined,
+      answerProvider: context.answerProviderPriority === "default"
+        ? defaultProvider ?? projectProvider
+        : projectProvider ?? defaultProvider,
+      llmConfig,
     }
   }
 
@@ -286,5 +310,6 @@ export async function resolveProjectRuntimeProviders(
     answerProvider: context.defaultAnswerProvider
       ? wrapDefaultAnswerProvider(context.defaultAnswerProvider)
       : undefined,
+    llmConfig: resolveProjectLlmRuntime(null, context.appConfig.ai),
   }
 }

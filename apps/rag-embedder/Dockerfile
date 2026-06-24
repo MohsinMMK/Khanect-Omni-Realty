@@ -8,7 +8,7 @@ WORKDIR /app
 COPY apps/rag-embedder/pyproject.toml apps/rag-embedder/README.md ./
 COPY apps/rag-embedder/src ./src
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[bge]"
 
 EXPOSE 8080
 CMD ["uvicorn", "rag_embedder_service.main:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8080"]

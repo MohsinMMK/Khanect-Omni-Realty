@@ -25,7 +25,13 @@ import { toast } from "sonner"
 import { api, getErrorMessage } from "@/lib/api"
 import { channelDescription } from "@/lib/channels"
 import { AlertCallout } from "./components"
-import type { Connector, Deployment, WidgetPolicy } from "./types"
+import type {
+  ChatbotRuntimeStatus,
+  Connector,
+  Deployment,
+  KnowledgeSource,
+  WidgetPolicy,
+} from "./types"
 
 function connectorIsToggleable(status: string) {
   return status === "active" || status === "paused"
@@ -71,15 +77,23 @@ export function ConnectView({ chatbotId }: { chatbotId: string }) {
   const [originCheckInput, setOriginCheckInput] = useState("")
   const [originCheckResult, setOriginCheckResult] = useState("")
   const [checkingOrigin, setCheckingOrigin] = useState(false)
+  const [runtimeStatus, setRuntimeStatus] = useState<ChatbotRuntimeStatus | null>(null)
+  const [indexedKnowledgeCount, setIndexedKnowledgeCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    void api<{ connectors: Connector[]; deployment: Deployment; widgetPolicy: WidgetPolicy }>(`/admin/chatbots/${chatbotId}/connectors`)
-      .then((response) => {
+    void Promise.all([
+      api<{ connectors: Connector[]; deployment: Deployment; widgetPolicy: WidgetPolicy }>(`/admin/chatbots/${chatbotId}/connectors`),
+      api<ChatbotRuntimeStatus>(`/admin/chatbots/${chatbotId}/runtime`),
+      api<{ items: KnowledgeSource[] }>(`/admin/chatbots/${chatbotId}/knowledge`),
+    ])
+      .then(([response, runtime, knowledge]) => {
         if (cancelled) return
         setConnectors(response.connectors)
         setDeployment(response.deployment)
         setWidgetPolicy(response.widgetPolicy)
+        setRuntimeStatus(runtime)
+        setIndexedKnowledgeCount(knowledge.items.filter((item) => item.status === "indexed" && item.chunkCount > 0).length)
         setAllowedDomainsText(response.deployment.allowedDomains.join(", "))
         setWebsiteUrl(response.deployment.allowedDomains[0] ? `https://${response.deployment.allowedDomains[0]}` : "")
         setOriginCheckInput(response.deployment.allowedDomains[0] ? `https://${response.deployment.allowedDomains[0]}` : "")
@@ -200,6 +214,10 @@ export function ConnectView({ chatbotId }: { chatbotId: string }) {
   const instagramConnector = connectors.find((connector) => connector.channel === "instagram_dm")
   const domainsConfigured = Boolean(deployment?.allowedDomains.length)
   const installStatusLabel = deployment?.installStatus?.replace(/_/g, " ") ?? "unknown"
+  const runtimeLive = runtimeStatus?.runtimeStatus === "live"
+  const capabilitiesReady = runtimeStatus?.capabilities.ready ?? false
+  const websiteSetupReady = runtimeLive && indexedKnowledgeCount > 0 && capabilitiesReady
+  const missingCapabilityMessage = runtimeStatus?.capabilities.missingRequirements[0]?.message
 
   return (
     <div className="flex flex-col gap-5">
@@ -232,6 +250,15 @@ export function ConnectView({ chatbotId }: { chatbotId: string }) {
               <CardTitle>Website widget</CardTitle>
               <CardDescription>Install this snippet on the business website to load the chatbot widget.</CardDescription>
               <div className="flex flex-wrap gap-2 pt-1">
+                <Badge variant={runtimeLive ? "secondary" : "outline"}>
+                  Runtime {runtimeStatus?.runtimeStatus?.replace(/_/g, " ") ?? "checking"}
+                </Badge>
+                <Badge variant={indexedKnowledgeCount > 0 ? "secondary" : "outline"}>
+                  {indexedKnowledgeCount} indexed source{indexedKnowledgeCount === 1 ? "" : "s"}
+                </Badge>
+                <Badge variant={capabilitiesReady ? "secondary" : "outline"}>
+                  Capabilities {capabilitiesReady ? "ready" : "blocked"}
+                </Badge>
                 <HoverCard>
                   <HoverCardTrigger render={<Badge className="cursor-default" variant={websiteConnector?.status === "active" ? "default" : "outline"} />}>
                     {websiteConnector?.status.replace(/_/g, " ") ?? "Website first"}
@@ -265,10 +292,22 @@ export function ConnectView({ chatbotId }: { chatbotId: string }) {
                   </div>
                   <ConnectorStatusSwitch
                     connector={websiteConnector}
-                    disabled={updatingConnector === "website"}
+                    disabled={updatingConnector === "website" || !websiteSetupReady}
                     onToggle={toggleConnector}
                   />
                 </div>
+              )}
+              {!websiteSetupReady && (
+                <AlertCallout
+                  title="Runtime proof required"
+                  description={
+                    !runtimeLive
+                      ? runtimeStatus?.latest.lastSyncError ?? "The Agno runtime must be live before website deployment is enabled."
+                      : missingCapabilityMessage
+                        ? missingCapabilityMessage
+                        : "Publish at least one knowledge source before installing the website widget."
+                  }
+                />
               )}
               {!domainsConfigured && (
                 <AlertCallout
@@ -347,19 +386,19 @@ export function ConnectView({ chatbotId }: { chatbotId: string }) {
               </FieldGroup>
             </CardContent>
             <CardFooter className="flex-wrap gap-2">
-              <Button disabled={!deployment} onClick={() => void copySnippet()}>
+              <Button disabled={!deployment || !websiteSetupReady} onClick={() => void copySnippet()}>
                 <Clipboard data-icon="inline-start" />
                 Copy snippet
               </Button>
-              <Button disabled={!deployment || savingDomains} variant="outline" onClick={() => void saveAllowedDomains()}>
+              <Button disabled={!deployment || savingDomains || !websiteSetupReady} variant="outline" onClick={() => void saveAllowedDomains()}>
                 {savingDomains && <Spinner data-icon="inline-start" />}
                 Save domains
               </Button>
-              <Button disabled={!deployment || !domainsConfigured || !websiteUrl || verifying} variant="outline" onClick={() => void verifyInstall()}>
+              <Button disabled={!deployment || !domainsConfigured || !websiteUrl || verifying || !websiteSetupReady} variant="outline" onClick={() => void verifyInstall()}>
                 {verifying && <Spinner data-icon="inline-start" />}
                 Verify install
               </Button>
-              <Button disabled={!deployment || !originCheckInput.trim() || checkingOrigin} variant="outline" onClick={() => void checkOrigin()}>
+              <Button disabled={!deployment || !originCheckInput.trim() || checkingOrigin || !websiteSetupReady} variant="outline" onClick={() => void checkOrigin()}>
                 {checkingOrigin && <Spinner data-icon="inline-start" />}
                 Check origin
               </Button>

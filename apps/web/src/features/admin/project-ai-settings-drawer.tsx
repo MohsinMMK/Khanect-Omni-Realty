@@ -1,4 +1,5 @@
 import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert"
+import { localEmbeddingModelPresets } from "@workspace/core/embedding-catalog"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@workspace/ui/components/drawer"
@@ -9,6 +10,7 @@ import { Separator } from "@workspace/ui/components/separator"
 import { Spinner } from "@workspace/ui/components/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
+import { cn } from "@workspace/ui/lib/utils"
 import { Bot, Cloud, KeyRound, Server, Sparkles } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 
@@ -26,9 +28,11 @@ import type {
 
 const embeddingProviderOptions: Array<{ id: EmbeddingProviderMode; label: string; icon: typeof Cloud }> = [
   { id: "openai", label: "OpenAI API", icon: Cloud },
-  { id: "local", label: "Local BGE-M3", icon: Server },
+  { id: "local", label: "Local BGE", icon: Server },
   { id: "stub", label: "Stub (dev)", icon: Sparkles },
 ]
+
+const recommendedLocalEmbeddingModel = localEmbeddingModelPresets.find((preset) => preset.recommended)?.model ?? "BAAI/bge-base-en-v1.5"
 
 export function ProjectAiSettingsDrawer({
   open,
@@ -73,7 +77,7 @@ export function ProjectAiSettingsDrawer({
     setEmbeddingProvider(next.embedding.configuredProvider ?? next.embedding.provider)
     setEmbeddingApiKey("")
     setEmbedderUrl(next.embedding.embedderUrl ?? "")
-    setEmbeddingModel(next.embedding.model ?? "")
+    setEmbeddingModel(next.embedding.model ?? recommendedLocalEmbeddingModel)
     setLlmTestResult(null)
     setEmbeddingTestResult(null)
     setTestError("")
@@ -297,6 +301,11 @@ export function ProjectAiSettingsDrawer({
                   {config.embedding.detail && (
                     <p className="mt-2 text-sm text-muted-foreground">{config.embedding.detail}</p>
                   )}
+                  {config.embedding.requiresReindex && (
+                    <p className="mt-2 text-sm text-amber-600">
+                      Embedding settings changed. Reindex published knowledge before connecting or testing this chatbot.
+                    </p>
+                  )}
                   <p className="mt-2 text-sm text-muted-foreground">
                     Vectorizes knowledge chunks for RAG search. Independent from the LLM key above.
                   </p>
@@ -331,7 +340,12 @@ export function ProjectAiSettingsDrawer({
                           variant="outline"
                           onValueChange={(values) => {
                             const next = values[0] as EmbeddingProviderMode | undefined
-                            if (next) setEmbeddingProvider(next)
+                            if (next) {
+                              setEmbeddingProvider(next)
+                              if (next === "local" && !localEmbeddingModelPresets.some((preset) => preset.model === embeddingModel)) {
+                                setEmbeddingModel(recommendedLocalEmbeddingModel)
+                              }
+                            }
                           }}
                         >
                           {embeddingProviderOptions.map((option) => {
@@ -360,16 +374,51 @@ export function ProjectAiSettingsDrawer({
                       )}
 
                       {embeddingProvider === "local" && (
-                        <Field>
-                          <FieldLabel>Embedder URL</FieldLabel>
-                          <Input
-                            placeholder="http://rag-embedder:8080"
-                            value={embedderUrl}
-                            onChange={(event) => setEmbedderUrl(event.target.value)}
-                          />
-                        </Field>
+                        <>
+                          <Field>
+                            <FieldLabel>Embedding preset</FieldLabel>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {localEmbeddingModelPresets.map((preset) => {
+                                const selected = embeddingModel === preset.model
+                                return (
+                                  <button
+                                    key={preset.id}
+                                    type="button"
+                                    className={cn(
+                                      "rounded-lg border p-4 text-left transition-colors",
+                                      selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted",
+                                    )}
+                                    onClick={() => setEmbeddingModel(preset.model)}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-medium">{preset.label}</span>
+                                      {preset.recommended && <Badge variant="secondary">Recommended</Badge>}
+                                    </div>
+                                    <p className="mt-2 text-sm text-muted-foreground">{preset.summary}</p>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <Badge variant="outline">{preset.dimension} dimensions</Badge>
+                                      <Badge variant="outline">{preset.model}</Badge>
+                                    </div>
+                                    <p className="mt-2 text-xs text-muted-foreground">{preset.ramHint}</p>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            <FieldDescription>Changing this preset clears old vectors and requires published knowledge to be reindexed.</FieldDescription>
+                          </Field>
+
+                          <Field>
+                            <FieldLabel>Embedder URL</FieldLabel>
+                            <Input
+                              placeholder="http://rag-embedder:8080"
+                              value={embedderUrl}
+                              onChange={(event) => setEmbedderUrl(event.target.value)}
+                            />
+                          </Field>
+                        </>
                       )}
 
+                      {embeddingProvider !== "local" && (
                       <Field>
                         <FieldLabel>Model</FieldLabel>
                         <Input
@@ -378,6 +427,7 @@ export function ProjectAiSettingsDrawer({
                           onChange={(event) => setEmbeddingModel(event.target.value)}
                         />
                       </Field>
+                      )}
                     </>
                   )}
                 </FieldGroup>

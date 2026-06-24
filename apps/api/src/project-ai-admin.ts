@@ -5,7 +5,6 @@ import {
   resolveProjectEmbeddingProvider,
   type ProjectAiSecrets,
 } from "@workspace/core"
-import { EMBEDDING_DIMENSION } from "@workspace/core"
 
 export async function runProjectEmbeddingSmokeTest(
   secrets: ProjectAiSecrets | null,
@@ -17,8 +16,8 @@ export async function runProjectEmbeddingSmokeTest(
   const [embedding] = await provider.embedTexts([sample])
   const latencyMs = Date.now() - started
 
-  if (embedding.length !== EMBEDDING_DIMENSION) {
-    throw new Error(`Expected ${EMBEDDING_DIMENSION} dimensions, received ${embedding.length}`)
+  if (embedding.length !== provider.dimension) {
+    throw new Error(`Expected ${provider.dimension} dimensions, received ${embedding.length}`)
   }
 
   return {
@@ -69,6 +68,13 @@ export async function probeProjectEmbedding(
     try {
       const response = await fetchImpl(`${embedderUrl}/health`, { signal: AbortSignal.timeout(3_000) })
       if (!response.ok) return { ok: false as const, detail: `Embedder health returned ${response.status}.` }
+      const payload = (await response.json()) as { model?: string; dimension?: number }
+      if (payload.model && payload.model !== provider.model) {
+        return { ok: false as const, detail: `Embedder is running ${payload.model}, expected ${provider.model}.` }
+      }
+      if (payload.dimension && payload.dimension !== provider.dimension) {
+        return { ok: false as const, detail: `Embedder reports ${payload.dimension} dimensions, expected ${provider.dimension}.` }
+      }
       return { ok: true as const }
     } catch (error) {
       return {

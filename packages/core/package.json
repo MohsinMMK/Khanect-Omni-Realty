@@ -22,7 +22,21 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./document-upload": {
+      "types": "./dist/document-upload.d.ts",
+      "import": "./dist/document-upload.js",
+      "default": "./dist/document-upload.js"
+    },
+    "./embedding-catalog": {
+      "types": "./dist/embedding-catalog.d.ts",
+      "browser": "./dist/embedding-catalog.js",
+      "development": "./dist/embedding-catalog.js",
+      "module": "./dist/embedding-catalog.js",
+      "import": "./dist/embedding-catalog.js",
+      "default": "./dist/embedding-catalog.js"
     }
   }
 }

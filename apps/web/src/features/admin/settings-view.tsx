@@ -13,6 +13,7 @@ import { useState } from "react"
 
 import { useTheme } from "@/components/theme-provider"
 import { adminApiKeyStorageKey, readAdminApiKey } from "@/lib/api"
+import { capabilityOptions } from "@/lib/capabilities"
 import { EmbeddingSettingsPanel } from "./embedding-settings-panel"
 import type { Chatbot, Page, Project, ThemePreference } from "./types"
 
@@ -35,6 +36,9 @@ export function SettingsView({
   const activeChatbots = chatbots.filter((chatbot) => chatbot.status === "active").length
   const archivedChatbots = totalChatbots - activeChatbots
   const activeShare = totalChatbots > 0 ? Math.round((activeChatbots / totalChatbots) * 100) : 0
+  const selectedCapabilityOptions = selectedChatbot
+    ? capabilityOptions.filter((option) => selectedChatbot.capabilities[option.value as keyof Chatbot["capabilities"]])
+    : []
 
   function saveAdminKey() {
     const trimmed = adminKey.trim()
@@ -249,6 +253,9 @@ export function SettingsView({
                     <Field>
                       <FieldLabel>Runtime</FieldLabel>
                       <Input readOnly value={selectedChatbot?.runtimeStatus ?? "Not available"} />
+                      <FieldDescription>
+                        Live requires Agno health, approved indexed knowledge, and valid scoped capability rules.
+                      </FieldDescription>
                     </Field>
                     <Field>
                       <FieldLabel>Knowledge namespace</FieldLabel>
@@ -273,6 +280,11 @@ export function SettingsView({
                     <Building2 data-icon="inline-start" />
                     Properties
                   </Badge>
+                  {selectedCapabilityOptions.map((option) => (
+                    <Badge key={option.value} variant="outline">
+                      {option.label}: {option.tools.join(", ")}
+                    </Badge>
+                  ))}
                 </CardFooter>
               </CollapsibleContent>
             </Card>

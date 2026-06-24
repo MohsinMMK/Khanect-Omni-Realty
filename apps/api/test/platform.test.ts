@@ -1,8 +1,15 @@
 import { loadConfig } from "@workspace/config"
 import { createInMemoryProductionChatbotStore, type ProductionChatbotStore } from "@workspace/db"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { buildApi } from "../src/app.js"
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  globalThis.fetch = originalFetch
+})
 
 describe("Production website chatbot platform", () => {
   it("requires the configured admin api key for production platform routes", async () => {
@@ -888,7 +895,7 @@ describe("Production website chatbot platform", () => {
     expect(chatbot).toMatchObject({
       agentKey: expect.stringContaining("chatbot_"),
       knowledgeNamespace: expect.stringContaining("knowledge_"),
-      runtimeStatus: "ready",
+      runtimeStatus: "live",
       lastIndexedContentVersionId: null,
       lastSyncError: null,
     })
@@ -917,6 +924,393 @@ describe("Production website chatbot platform", () => {
       retrieval: { model: "agno-agent" },
       agentTraceId: "trace_123",
       actionTrace: { runtime: "agno" },
+    })
+
+    await app.close()
+  })
+
+  it("marks a new chatbot live when the Agno runtime health probe passes", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ status: "ok", runtime: "agno" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch
+    const config = loadConfig({
+      AGNO_ENABLED: "true",
+      AGNO_AGENT_URL: "http://agno-runtime.test",
+      AGNO_SERVICE_TOKEN: "dev-agno-service-token",
+      PLATFORM_STORE: "memory",
+    })
+    const store = createInMemoryProductionChatbotStore({ appConfig: config })
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      config,
+      productionChatbotStore: store,
+    })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Runtime Realty", domain: "runtime.example" },
+    })).json().project
+    const createResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: { name: "Runtime assistant" },
+    })
+    const chatbot = createResponse.json().chatbot
+    const runtimeResponse = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/runtime`,
+    })
+
+    expect(createResponse.statusCode).toBe(200)
+    expect(chatbot).toMatchObject({ runtimeStatus: "live", lastSyncError: null })
+    expect(runtimeResponse.statusCode).toBe(200)
+    expect(runtimeResponse.json()).toMatchObject({
+      chatbotId: chatbot.id,
+      runtimeStatus: "live",
+      agno: { enabled: true, status: "ok", runtime: "agno" },
+      model: { source: "platform", name: "qwen3" },
+      embedding: { source: "platform", provider: "stub", status: "ok" },
+      latest: { agentTraceId: null, lastSyncError: null },
+    })
+
+    await app.close()
+  })
+
+  it("routes test messages through the configured Agno runtime when Agno is enabled", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input)
+      if (url === "http://agno-runtime.test/health") {
+        return new Response(JSON.stringify({ status: "ok", runtime: "agno" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url === "http://agno-runtime.test/v1/chatbots/run") {
+        const payload = JSON.parse(String(init?.body)) as { chatbot: { agentKey: string }; sources: Array<{ chunkId: string }> }
+        return new Response(JSON.stringify({
+          answer: `Live Agno answer for ${payload.chatbot.agentKey}.`,
+          model: "gpt-5-mini",
+          confidence: "high",
+          agentTraceId: "trace_live_123",
+          actionTrace: {
+            runtime: "agno",
+            mode: "live_agent",
+            sourceIds: payload.sources.map((source) => source.chunkId),
+            toolsEnabled: ["capture_lead", "request_human_handoff", "get_business_contact"],
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("unexpected fetch", { status: 500 })
+    }) as typeof fetch
+    const config = loadConfig({
+      AGNO_ENABLED: "true",
+      AGNO_AGENT_URL: "http://agno-runtime.test",
+      AGNO_SERVICE_TOKEN: "dev-agno-service-token",
+      PLATFORM_STORE: "memory",
+    })
+    const app = await buildApi({ logger: false, staticAssets: { enabled: false }, config })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Agno Runtime Test" },
+    })).json().project
+    const chatbot = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: { name: "Agno runtime assistant" },
+    })).json().chatbot
+    const content = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content`,
+      payload: { title: "Gym rules", body: "The gym is open daily from 6 AM to 10 PM." },
+    })).json().item
+    await app.inject({ method: "POST", url: `/api/v1/admin/chatbots/${chatbot.id}/content/${content.id}/publish` })
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/test-message`,
+      payload: { message: "When is the gym open?" },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      answer: expect.stringContaining("Live Agno answer"),
+      fallback: false,
+      retrieval: { model: "gpt-5-mini" },
+      agentTraceId: "trace_live_123",
+      actionTrace: { runtime: "agno", mode: "live_agent" },
+    })
+
+    await app.close()
+  })
+
+  it("sends scoped capability policy metadata to the Agno runtime", async () => {
+    const agnoPayloads: unknown[] = []
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input)
+      if (url === "http://agno-runtime.test/health") {
+        return new Response(JSON.stringify({ status: "ok", runtime: "agno" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url === "http://agno-runtime.test/v1/chatbots/run") {
+        const payload = JSON.parse(String(init?.body))
+        agnoPayloads.push(payload)
+        return new Response(JSON.stringify({
+          answer: "Scoped Agno answer.",
+          model: "gpt-5-mini",
+          confidence: "high",
+          agentTraceId: "trace_policy_123",
+          actionTrace: {
+            runtime: "agno",
+            mode: "live_agent",
+            policyVersion: payload.policy.policyVersion,
+            capabilityIds: payload.policy.capabilityIds,
+            toolsEnabled: payload.policy.toolsEnabled,
+            toolsDenied: payload.policy.toolsDenied,
+            sourceIds: payload.policy.sourceIds,
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("unexpected fetch", { status: 500 })
+    }) as typeof fetch
+    const config = loadConfig({
+      AGNO_ENABLED: "true",
+      AGNO_AGENT_URL: "http://agno-runtime.test",
+      AGNO_SERVICE_TOKEN: "dev-agno-service-token",
+      PLATFORM_STORE: "memory",
+    })
+    const app = await buildApi({ logger: false, staticAssets: { enabled: false }, config })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Scoped Policy Test" },
+    })).json().project
+    const chatbot = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: {
+        name: "Scoped assistant",
+        purpose: "Answer only approved Marina Heights questions.",
+        capabilities: { faq: true, leadCapture: true, appointmentBooking: false, propertyRecommendations: true },
+      },
+    })).json().chatbot
+    const content = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content`,
+      payload: {
+        contentType: "property",
+        title: "Marina Heights inventory",
+        body: "Marina Heights has a two-bedroom property with marina views.",
+      },
+    })).json().item
+    await app.inject({ method: "POST", url: `/api/v1/admin/chatbots/${chatbot.id}/content/${content.id}/publish` })
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/test-message`,
+      payload: { message: "Which Marina Heights property should I consider?" },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(agnoPayloads).toHaveLength(1)
+    expect(agnoPayloads[0]).toMatchObject({
+      policy: {
+        policyVersion: "agent-capability-policy-v1",
+        capabilityIds: ["faq", "leadCapture", "propertyRecommendations"],
+        toolsEnabled: ["capture_lead", "request_human_handoff", "get_business_contact", "recommend_property"],
+        toolsDenied: ["request_appointment"],
+      },
+    })
+    expect(response.json()).toMatchObject({
+      actionTrace: {
+        runtime: "agno",
+        mode: "live_agent",
+        policyVersion: "agent-capability-policy-v1",
+        capabilityIds: ["faq", "leadCapture", "propertyRecommendations"],
+        toolsDenied: ["request_appointment"],
+      },
+    })
+
+    await app.close()
+  })
+
+  it("passes resolved project LLM config to the Agno runtime when Agno is enabled", async () => {
+    const agnoPayloads: unknown[] = []
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input)
+      if (url === "http://agno-runtime.test/health") {
+        return new Response(JSON.stringify({ status: "ok", runtime: "agno" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      if (url === "http://agno-runtime.test/v1/chatbots/run") {
+        const payload = JSON.parse(String(init?.body))
+        agnoPayloads.push(payload)
+        return new Response(JSON.stringify({
+          answer: "Real provider answer from Agno.",
+          model: payload.llm.model,
+          confidence: "high",
+          agentTraceId: "trace_llm_123",
+          actionTrace: {
+            runtime: "agno",
+            mode: "live_agent",
+            providerMode: "llm",
+            model: payload.llm.model,
+            sourceIds: payload.policy.sourceIds,
+          },
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return new Response("unexpected fetch", { status: 500 })
+    }) as typeof fetch
+    const config = loadConfig({
+      AGNO_ENABLED: "true",
+      AGNO_AGENT_URL: "http://agno-runtime.test",
+      AGNO_SERVICE_TOKEN: "dev-agno-service-token",
+      PLATFORM_STORE: "memory",
+    })
+    const app = await buildApi({ logger: false, staticAssets: { enabled: false }, config })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Agno LLM Config Test" },
+    })).json().project
+    await app.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/projects/${project.id}/ai-config`,
+      payload: {
+        llm: {
+          source: "project",
+          apiKey: "sk-project-llm-key",
+          baseUrl: "https://opencode.ai/zen/go/v1",
+          model: "glm-5.2",
+        },
+      },
+    })
+    const chatbot = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: { name: "Agno LLM assistant" },
+    })).json().chatbot
+    const content = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content`,
+      payload: { contentType: "faq", title: "Pool rules", body: "The pool is open daily from 8 AM to 8 PM." },
+    })).json().item
+    await app.inject({ method: "POST", url: `/api/v1/admin/chatbots/${chatbot.id}/content/${content.id}/publish` })
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/test-message`,
+      payload: { message: "When is the pool open?" },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(agnoPayloads).toHaveLength(1)
+    expect(agnoPayloads[0]).toMatchObject({
+      llm: {
+        apiKey: "sk-project-llm-key",
+        baseUrl: "https://opencode.ai/zen/go/v1",
+        model: "glm-5.2",
+        source: "project",
+      },
+    })
+    expect(response.json()).toMatchObject({
+      answer: "Real provider answer from Agno.",
+      retrieval: { model: "glm-5.2" },
+      actionTrace: { runtime: "agno", mode: "live_agent", providerMode: "llm" },
+    })
+
+    await app.close()
+  })
+
+  it("reports capability readiness from the runtime endpoint", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ status: "ok", runtime: "agno" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as typeof fetch
+    const config = loadConfig({
+      AGNO_ENABLED: "true",
+      AGNO_AGENT_URL: "http://agno-runtime.test",
+      AGNO_SERVICE_TOKEN: "dev-agno-service-token",
+      PLATFORM_STORE: "memory",
+    })
+    const app = await buildApi({ logger: false, staticAssets: { enabled: false }, config })
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Readiness Test" },
+    })).json().project
+    const chatbot = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: {
+        name: "Recommendation assistant",
+        capabilities: { faq: true, leadCapture: false, appointmentBooking: false, propertyRecommendations: true },
+      },
+    })).json().chatbot
+
+    const initial = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/runtime`,
+    })
+
+    expect(initial.statusCode).toBe(200)
+    expect(initial.json()).toMatchObject({
+      capabilities: {
+        enabled: ["faq", "propertyRecommendations"],
+        availableTools: ["get_business_contact"],
+        missingRequirements: [
+          {
+            capabilityId: "propertyRecommendations",
+            code: "SOURCE_TYPE_REQUIRED",
+          },
+        ],
+        ready: false,
+      },
+      policyVersion: "agent-capability-policy-v1",
+    })
+
+    const content = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content`,
+      payload: {
+        contentType: "property",
+        title: "Recommendation source",
+        body: "Recommend Marina Heights for buyers who want marina views.",
+      },
+    })).json().item
+    await app.inject({ method: "POST", url: `/api/v1/admin/chatbots/${chatbot.id}/content/${content.id}/publish` })
+
+    const ready = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/runtime`,
+    })
+
+    expect(ready.json()).toMatchObject({
+      capabilities: {
+        enabled: ["faq", "propertyRecommendations"],
+        availableTools: ["get_business_contact", "recommend_property"],
+        missingRequirements: [],
+        ready: true,
+      },
     })
 
     await app.close()
@@ -963,6 +1357,37 @@ describe("Production website chatbot platform", () => {
           payload: { name: "Visitor", phone: "+971500000000" },
         },
       ],
+    })
+
+    await app.close()
+  })
+
+  it("rejects internal tool calls denied by scoped capability policy", async () => {
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: createInMemoryProductionChatbotStore(),
+    })
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/api/v1/internal/agent-tools/request_appointment",
+      headers: { authorization: "Bearer phase0_dev_only_agno_service_token" },
+      payload: {
+        policy: {
+          policyVersion: "agent-capability-policy-v1",
+          toolsEnabled: ["get_business_contact"],
+          toolsDenied: ["request_appointment"],
+        },
+        visitorName: "Buyer",
+      },
+    })
+
+    expect(denied.statusCode).toBe(403)
+    expect(denied.json()).toMatchObject({
+      error: {
+        code: "AGENT_TOOL_DENIED_BY_POLICY",
+      },
     })
 
     await app.close()

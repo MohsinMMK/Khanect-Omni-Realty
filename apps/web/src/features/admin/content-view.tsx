@@ -42,7 +42,6 @@ import { Spinner } from "@workspace/ui/components/spinner"
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@workspace/ui/components/empty"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@workspace/ui/components/table"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
@@ -64,13 +63,22 @@ import { toast } from "sonner"
 
 import { api, getErrorMessage } from "@/lib/api"
 import { capabilitiesToSelection, capabilityPayload, getSelectedCapabilityLabels } from "@/lib/capabilities"
-import { cleanFileTitle, getContentDisplayTitle, getContentSourceHost, getContentSummary, inferContentType } from "@/lib/content-helpers"
+import { extractDocumentUpload, getContentDisplayTitle, getContentSourceHost, getContentSummary, supportedDocumentUploadAccept } from "@/lib/content-helpers"
 import { AlertCallout, EmptyState } from "./components"
 import { contentTypeOptions, sampleContent } from "./constants"
 import { CapabilityPicker, NewBotSetupButton } from "./projects-view"
 import type { ChatAnswer, Chatbot, ContentItem, KnowledgeSource, Project } from "./types"
 
 const SKELETON_ROW_COUNT = 5
+
+function isAgnoLiveAnswer(answer: ChatAnswer) {
+  return answer.actionTrace.runtime === "agno" && answer.actionTrace.mode === "live_agent"
+}
+
+function traceStringList(answer: ChatAnswer, key: string) {
+  const value = answer.actionTrace[key]
+  return Array.isArray(value) ? value.map(String) : []
+}
 
 function ChatbotTableSkeleton() {
   return (
@@ -447,15 +455,13 @@ export function ContentView({
     let uploaded = 0
     try {
       for (const file of Array.from(files)) {
-        const body = (await file.text()).trim()
-        if (!body) continue
-        const title = cleanFileTitle(file.name)
+        const document = await extractDocumentUpload(file)
         await api<{ item: ContentItem }>(`/admin/chatbots/${chatbotId}/content`, {
           method: "POST",
           body: {
-            title,
-            body: body.slice(0, 50000),
-            contentType: inferContentType(file.name),
+            title: document.title,
+            body: document.body,
+            contentType: document.contentType,
           },
         })
         uploaded += 1
@@ -509,7 +515,7 @@ export function ContentView({
           className="hidden"
           type="file"
           multiple
-          accept=".txt,.md,.markdown,.csv,.json,.html,.htm"
+          accept={supportedDocumentUploadAccept}
           onChange={(event) => void uploadDocuments(event.currentTarget.files)}
         />
       </div>
@@ -942,7 +948,34 @@ export function ContentView({
                   </Button>
                   {detailAnswer && (
                     <div className="rounded-2xl border border-border/60 px-4 py-3">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">Test response</span>
+                        <Badge variant={isAgnoLiveAnswer(detailAnswer) ? "secondary" : "outline"}>
+                          {isAgnoLiveAnswer(detailAnswer) ? "Agno live" : "Fallback"}
+                        </Badge>
+                      </div>
                       <div className="whitespace-pre-wrap text-sm">{detailAnswer.answer}</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {typeof detailAnswer.actionTrace.policyVersion === "string" && (
+                          <Badge variant="outline">{detailAnswer.actionTrace.policyVersion}</Badge>
+                        )}
+                        {traceStringList(detailAnswer, "capabilityIds").map((capabilityId) => (
+                          <Badge key={`detail-capability-${capabilityId}`} variant="secondary">
+                            {capabilityId.replace(/([A-Z])/g, " $1")}
+                          </Badge>
+                        ))}
+                        {traceStringList(detailAnswer, "toolsEnabled").length > 0 && (
+                          <Badge variant="outline">
+                            Tools: {traceStringList(detailAnswer, "toolsEnabled").join(", ")}
+                          </Badge>
+                        )}
+                        {traceStringList(detailAnswer, "sourceIds").length > 0 && (
+                          <Badge variant="outline">
+                            Sources: {traceStringList(detailAnswer, "sourceIds").length}
+                          </Badge>
+                        )}
+                        {detailAnswer.agentTraceId && <Badge variant="outline">Trace {detailAnswer.agentTraceId}</Badge>}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -980,15 +1013,19 @@ export function ContentView({
                 <Input placeholder="Example: Marina Heights pet policy" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
               </Field>
               <Field>
-                <FieldLabel>Information type</FieldLabel>
-                <Select items={contentTypeOptions} value={form.contentType} onValueChange={(value) => setForm((current) => ({ ...current, contentType: String(value) }))}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {contentTypeOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <FieldLabel htmlFor="content-type-select">Information type</FieldLabel>
+                <select
+                  id="content-type-select"
+                  className="h-9 w-full rounded-3xl border border-input bg-input/50 px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow,background-color,border-color] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+                  value={form.contentType}
+                  onChange={(event) => setForm((current) => ({ ...current, contentType: event.target.value }))}
+                >
+                  {contentTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field>
                 <FieldLabel>Approved answer</FieldLabel>

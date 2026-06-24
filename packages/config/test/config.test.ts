@@ -29,14 +29,15 @@ describe("loadConfig", () => {
   it("parses embedder configuration", () => {
     const withUrl = loadConfig({
       EMBEDDER_URL: "http://embedder:8080",
-      EMBEDDING_MODEL: "BAAI/bge-m3",
+      EMBEDDING_MODEL: "BAAI/bge-base-en-v1.5",
       EMBEDDING_ENABLED: "false",
     })
 
     expect(withUrl.ai).toMatchObject({
       embeddingProvider: "local",
       embedderUrl: "http://embedder:8080",
-      embeddingModel: "BAAI/bge-m3",
+      embeddingModel: "BAAI/bge-base-en-v1.5",
+      embeddingDimension: 768,
       embeddingEnabled: true,
     })
 

@@ -19,8 +19,17 @@ import { navItems } from "./constants"
 import type { Chatbot, Page, Project } from "./types"
 
 type PickerOption = { id: string; label: string }
+const pageLabels: Record<Page, string> = {
+  projects: "Projects",
+  content: "Workspace",
+  connect: "Connect",
+  conversations: "Inbox",
+  settings: "Settings",
+}
 
-function toPickerOptions<T extends { id: string; name: string }>(items: T[]): PickerOption[] {
+function toPickerOptions<T extends { id: string; name: string }>(
+  items: T[]
+): PickerOption[] {
   return items.map((item) => ({ id: item.id, label: item.name }))
 }
 
@@ -52,7 +61,10 @@ function WorkspaceCombobox({
         if (next) onValueChange(next.id)
       }}
     >
-      <ComboboxInput className={cn("w-44", className)} placeholder={placeholder} />
+      <ComboboxInput
+        className={cn("w-44", className)}
+        placeholder={placeholder}
+      />
       <ComboboxContent>
         <ComboboxEmpty>No matches.</ComboboxEmpty>
         <ComboboxList>
@@ -86,10 +98,14 @@ export function WorkspaceToolbar({
   selectedChatbotId: string
   selectedProjectId: string
 }) {
-  const pageLabel = navItems.find((item) => item.key === page)?.label ?? "Admin"
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
-  const selectedChatbot = chatbots.find((chatbot) => chatbot.id === selectedChatbotId) ?? null
-  const showChatbotPicker = page === "content" || page === "connect" || page === "conversations"
+  const pageLabel =
+    navItems.find((item) => item.key === page)?.label ?? pageLabels[page]
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) ?? null
+  const selectedChatbot =
+    chatbots.find((chatbot) => chatbot.id === selectedChatbotId) ?? null
+  const showChatbotPicker =
+    page === "content" || page === "connect" || page === "conversations"
   const projectOptions = toPickerOptions(projects)
   const chatbotOptions = toPickerOptions(chatbots)
 
@@ -113,7 +129,9 @@ export function WorkspaceToolbar({
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 {showChatbotPicker && selectedChatbot ? (
-                  <span className="truncate text-muted-foreground">{selectedProject.name}</span>
+                  <span className="truncate text-muted-foreground">
+                    {selectedProject.name}
+                  </span>
                 ) : (
                   <BreadcrumbPage>{selectedProject.name}</BreadcrumbPage>
                 )}

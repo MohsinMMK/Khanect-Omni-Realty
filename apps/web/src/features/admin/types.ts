@@ -20,13 +20,13 @@ export type Chatbot = {
   status: string
   agentKey?: string
   knowledgeNamespace?: string
-  runtimeStatus?: "ready" | "syncing" | "error" | "paused"
+  runtimeStatus?: "provisioning" | "live" | "syncing" | "error" | "paused"
   lastIndexedContentVersionId?: string | null
   lastSyncError?: string | null
 }
 export type ContentItem = { id: string; title: string; slug: string; body: string; status: string; contentType: string; publishedVersionId?: string | null }
 export type KnowledgeSource = { id: string; chatbotId?: string; contentItemId?: string; sourceVersionId?: string; title: string; sourceType: string; chunkCount: number; status: string; indexedAt: string }
-export type Source = { chunkId: string; title: string; excerpt: string; score: number }
+export type Source = { chunkId: string; title: string; excerpt: string; score: number; sourceType?: string }
 export type ChatAnswer = {
   answer: string
   fallback: boolean
@@ -35,6 +35,26 @@ export type ChatAnswer = {
   confidence: string
   actionTrace: Record<string, unknown>
   agentTraceId?: string
+}
+export type ChatbotRuntimeStatus = {
+  chatbotId: string
+  runtimeStatus: NonNullable<Chatbot["runtimeStatus"]>
+  agno: {
+    enabled: boolean
+    status: "ok" | "unavailable" | "disabled"
+    runtime: string | null
+    detail?: string
+  }
+  model: { source: ProjectAiSource; name: string }
+  embedding: { source: ProjectAiSource; provider: EmbeddingProviderMode; status: "ok" | "misconfigured" }
+  latest: { agentTraceId: string | null; lastSyncError: string | null }
+  capabilities: {
+    enabled: Array<keyof ChatbotCapabilities>
+    availableTools: string[]
+    missingRequirements: Array<{ capabilityId: keyof ChatbotCapabilities; code: string; message: string }>
+    ready: boolean
+  }
+  policyVersion: string
 }
 export type Connector = { id: string; channel: "website" | "whatsapp" | "instagram_dm"; status: string; displayName: string; config: Record<string, unknown> }
 export type ConversationSummary = {
@@ -109,6 +129,7 @@ export type ProjectEmbeddingConfig = {
   embedderUrl: string | null
   model: string | null
   dimension: number
+  requiresReindex?: boolean
   status: "ok" | "misconfigured"
   detail?: string
   probe?: { ok: boolean; detail?: string }

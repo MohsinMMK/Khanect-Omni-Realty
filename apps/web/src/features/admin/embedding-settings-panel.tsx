@@ -176,7 +176,7 @@ export function EmbeddingSettingsPanel() {
                   <FieldLabel>Local embedder URL</FieldLabel>
                   <Input readOnly value={status.embedderUrl ?? "Not configured — set EMBEDDER_URL"} />
                   <FieldDescription>
-                    Requires ~4–6 GB RAM for BGE-M3. On an 8 GB VPS with other services, prefer the OpenAI API path.
+                    Uses the local BGE preset selected by project settings. BGE small is lowest RAM; BGE base is the recommended default.
                   </FieldDescription>
                 </Field>
               )}

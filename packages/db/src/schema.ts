@@ -21,6 +21,24 @@ const vector1024 = customType<{ data: number[] | string; driverData: string }>({
   },
 })
 
+const vector384 = customType<{ data: number[] | string; driverData: string }>({
+  dataType() {
+    return "vector(384)"
+  },
+  toDriver(value) {
+    return Array.isArray(value) ? `[${value.join(",")}]` : value
+  },
+})
+
+const vector768 = customType<{ data: number[] | string; driverData: string }>({
+  dataType() {
+    return "vector(768)"
+  },
+  toDriver(value) {
+    return Array.isArray(value) ? `[${value.join(",")}]` : value
+  },
+})
+
 export const schemaMetadata = pgTable("schema_metadata", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -92,6 +110,7 @@ export const projectAiConfig = pgTable(
     embeddingApiKeyEncrypted: text("embedding_api_key_encrypted"),
     embedderUrl: text("embedder_url"),
     embeddingModel: text("embedding_model"),
+    embeddingDimension: integer("embedding_dimension"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -127,7 +146,7 @@ export const chatbot = pgTable(
     status: text("status").notNull().default("active"),
     agentKey: text("agent_key").notNull(),
     knowledgeNamespace: text("knowledge_namespace").notNull(),
-    runtimeStatus: text("runtime_status").notNull().default("ready"),
+    runtimeStatus: text("runtime_status").notNull().default("provisioning"),
     lastIndexedContentVersionId: uuid("last_indexed_content_version_id"),
     lastSyncError: text("last_sync_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -252,7 +271,9 @@ export const ragChunk = pgTable(
     section: text("section").notNull().default("body"),
     content: text("content").notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-    embedding: vector1024("embedding").notNull(),
+    embedding: vector1024("embedding"),
+    embedding384: vector384("embedding_384"),
+    embedding768: vector768("embedding_768"),
     embeddingModel: text("embedding_model").notNull().default("stub/hash-v1"),
     embeddingDimension: integer("embedding_dimension").notNull().default(1024),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  BGE_BASE_EN_V15_DIMENSION,
+  BGE_BASE_EN_V15_EMBEDDING_MODEL,
+  BGE_SMALL_EN_V15_DIMENSION,
+  BGE_SMALL_EN_V15_EMBEDDING_MODEL,
+} from "../src/embedding.js"
+import {
   buildProjectAiConfigDto,
   createProjectAnswerProvider,
   resolveProjectEmbeddingProvider,
@@ -60,6 +66,32 @@ describe("project-ai", () => {
     expect(provider.model).toBe("text-embedding-3-small")
   })
 
+  it("resolves local BGE project presets to their catalog dimensions", () => {
+    const small = buildProjectAiConfigDto(
+      {
+        ...projectSecrets,
+        embeddingProvider: "local",
+        embedderUrl: "http://localhost:8080",
+        embeddingModel: BGE_SMALL_EN_V15_EMBEDDING_MODEL,
+      },
+      platformConfig,
+      projectSecrets.projectId,
+    )
+    const base = buildProjectAiConfigDto(
+      {
+        ...projectSecrets,
+        embeddingProvider: "local",
+        embedderUrl: "http://localhost:8080",
+        embeddingModel: BGE_BASE_EN_V15_EMBEDDING_MODEL,
+      },
+      platformConfig,
+      projectSecrets.projectId,
+    )
+
+    expect(small.embedding.dimension).toBe(BGE_SMALL_EN_V15_DIMENSION)
+    expect(base.embedding.dimension).toBe(BGE_BASE_EN_V15_DIMENSION)
+  })
+
   it("creates project answer provider only when llm key exists", () => {
     expect(createProjectAnswerProvider(projectSecrets, platformConfig)).toBeDefined()
     expect(
@@ -68,5 +100,23 @@ describe("project-ai", () => {
         platformConfig,
       ),
     ).toBeUndefined()
+  })
+
+  it("preserves the OpenAI /v1 base path when calling chat completions", async () => {
+    let requestedUrl = ""
+    const provider = createProjectAnswerProvider(projectSecrets, platformConfig, async (input) => {
+      requestedUrl = String(input)
+      return new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    await provider?.({
+      message: "Reply OK.",
+      sources: [{ title: "Smoke", excerpt: "Reply OK from this approved source." }],
+    })
+
+    expect(requestedUrl).toBe("https://api.openai.com/v1/chat/completions")
   })
 })

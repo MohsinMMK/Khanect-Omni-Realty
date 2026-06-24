@@ -22,7 +22,8 @@ x-app-environment: &app-environment
   AGNO_MODEL: gpt-5-mini
   AGNO_EMBEDDING_MODEL: text-embedding-3-small
   EMBEDDER_URL: http://rag-embedder:8080
-  EMBEDDING_MODEL: BAAI/bge-m3
+  EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
+  EMBEDDING_DIMENSION: 768
   RAG_INDEX_SYNC: "false"
   WORKER_HEALTH_PORT: "3001"
 
@@ -62,11 +63,17 @@ services:
       dockerfile: apps/agno-agent/Dockerfile
     image: khanect-omni-realty-agno-agent:phase0
     environment:
+      AGNO_DATABASE_URL: postgresql://realestate:change_me@postgres:5432/realestate_app
       AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
       AGNO_MODEL: gpt-5-mini
       AGNO_EMBEDDING_MODEL: text-embedding-3-small
+      AGNO_USE_LIVE_AGENT: "1"
+      DATABASE_URL: postgresql://realestate:change_me@postgres:5432/realestate_app
     expose:
       - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   rag-embedder:
     build:
@@ -74,8 +81,8 @@ services:
       dockerfile: apps/rag-embedder/Dockerfile
     image: khanect-omni-realty-rag-embedder:phase0
     environment:
-      EMBEDDER_MODE: stub
-      EMBEDDING_MODEL: BAAI/bge-m3
+      EMBEDDER_MODE: local
+      EMBEDDING_MODEL: BAAI/bge-base-en-v1.5
     ports:
       - "8080:8080"
     healthcheck:

@@ -1,11 +1,12 @@
 import type { AppConfig } from "@workspace/config"
+import { joinBaseUrlPath } from "@workspace/core"
 import type { PlatformAnswerProvider } from "@workspace/db"
 
 export function createConfiguredAnswerProvider(config: AppConfig): PlatformAnswerProvider | undefined {
   if (!config.ai.llmApiKey) return undefined
 
   return async ({ message, sources }) => {
-    const response = await fetch(new URL("/chat/completions", config.ai.llmBaseUrl), {
+    const response = await fetch(joinBaseUrlPath(config.ai.llmBaseUrl, "chat/completions"), {
       method: "POST",
       headers: {
         authorization: `Bearer ${config.ai.llmApiKey}`,

@@ -12,7 +12,7 @@ interface AgnoRunResponse {
 export function createAgnoAnswerProvider(config: AppConfig): PlatformAnswerProvider | undefined {
   if (!config.agno.enabled) return undefined
 
-  return async ({ message, sources, chatbot, channel }) => {
+  return async ({ message, sources, chatbot, channel, policy, llmConfig }) => {
     const response = await fetch(new URL("/v1/chatbots/run", config.agno.agentUrl), {
       method: "POST",
       headers: {
@@ -31,6 +31,15 @@ export function createAgnoAnswerProvider(config: AppConfig): PlatformAnswerProvi
           agentKey: chatbot.agentKey,
           knowledgeNamespace: chatbot.knowledgeNamespace,
         },
+        policy,
+        llm: llmConfig?.apiKey && llmConfig.configured
+          ? {
+              source: llmConfig.source,
+              apiKey: llmConfig.apiKey,
+              baseUrl: llmConfig.baseUrl,
+              model: llmConfig.model,
+            }
+          : undefined,
         sources,
       }),
     })

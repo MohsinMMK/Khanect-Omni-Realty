@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  BGE_M3_EMBEDDING_MODEL,
+  BGE_BASE_EN_V15_DIMENSION,
+  BGE_BASE_EN_V15_EMBEDDING_MODEL,
+  BGE_SMALL_EN_V15_DIMENSION,
+  BGE_SMALL_EN_V15_EMBEDDING_MODEL,
   EMBEDDING_DIMENSION,
   OPENAI_EMBEDDING_MODEL,
   createEmbeddingProviderFromAppAiConfig,
@@ -9,6 +12,8 @@ import {
   createOpenAiEmbeddingProvider,
   createStubEmbeddingProvider,
   embedTextStubHashV1,
+  getLocalEmbeddingPresetByModel,
+  resolveEmbeddingDimension,
 } from "../src/embedding.js"
 
 describe("embedding providers", () => {
@@ -32,7 +37,7 @@ describe("embedding providers", () => {
   })
 
   it("parses OpenAI-compatible embedding responses from HTTP provider", async () => {
-    const vector = Array.from({ length: EMBEDDING_DIMENSION }, (_, index) => index / EMBEDDING_DIMENSION)
+    const vector = Array.from({ length: BGE_BASE_EN_V15_DIMENSION }, (_, index) => index / BGE_BASE_EN_V15_DIMENSION)
     const fetchImpl = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -41,7 +46,7 @@ describe("embedding providers", () => {
 
     const provider = createHttpEmbeddingProvider({
       baseUrl: "http://embedder:8080",
-      model: BGE_M3_EMBEDDING_MODEL,
+      model: BGE_BASE_EN_V15_EMBEDDING_MODEL,
       fetchImpl,
     })
     const [embedding] = await provider.embedTexts(["test"])
@@ -50,10 +55,17 @@ describe("embedding providers", () => {
       "http://embedder:8080/v1/embeddings",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ model: BGE_M3_EMBEDDING_MODEL, input: ["test"] }),
+        body: JSON.stringify({ model: BGE_BASE_EN_V15_EMBEDDING_MODEL, input: ["test"] }),
       }),
     )
     expect(embedding).toEqual(vector)
+  })
+
+  it("resolves local BGE preset dimensions", () => {
+    expect(getLocalEmbeddingPresetByModel(BGE_SMALL_EN_V15_EMBEDDING_MODEL)?.dimension).toBe(BGE_SMALL_EN_V15_DIMENSION)
+    expect(getLocalEmbeddingPresetByModel(BGE_BASE_EN_V15_EMBEDDING_MODEL)?.dimension).toBe(BGE_BASE_EN_V15_DIMENSION)
+    expect(resolveEmbeddingDimension({ provider: "local", model: BGE_SMALL_EN_V15_EMBEDDING_MODEL })).toBe(384)
+    expect(resolveEmbeddingDimension({ provider: "local", model: BGE_BASE_EN_V15_EMBEDDING_MODEL })).toBe(768)
   })
 
   it("requests 1024 dimensions from OpenAI embeddings", async () => {

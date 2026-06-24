@@ -1,7 +1,7 @@
 import type { AppConfig } from "@workspace/config"
 import {
-  BGE_M3_EMBEDDING_MODEL,
-  EMBEDDING_DIMENSION,
+  BGE_BASE_EN_V15_EMBEDDING_MODEL,
+  BGE_SMALL_EN_V15_EMBEDDING_MODEL,
   OPENAI_EMBEDDING_MODEL,
   STUB_EMBEDDING_MODEL,
   createEmbeddingProviderFromAppAiConfig,
@@ -57,15 +57,15 @@ const embeddingModes: EmbeddingModeInfo[] = [
   },
   {
     id: "local",
-    label: "Local BGE-M3",
-    summary: "Self-hosted rag-embedder with BAAI/bge-m3 — same model as your pgvector schema.",
-    bestFor: "Dedicated 8–16 GB RAM host or embedder-only VPS.",
-    ramHint: "Plan ~4–6 GB for the embedder process alone.",
+    label: "Local BGE v1.5",
+    summary: "Self-hosted rag-embedder with BGE small or BGE base presets.",
+    bestFor: "Production RAG on an 8 GB VPS without paid embedding APIs.",
+    ramHint: "BGE small is lowest RAM; BGE base is the recommended quality default.",
     costHint: "VPS cost only; no per-token API fees.",
     envVars: [
       "EMBEDDING_PROVIDER=local",
       "EMBEDDER_URL=http://rag-embedder:8080",
-      "EMBEDDING_MODEL=BAAI/bge-m3",
+      `EMBEDDING_MODEL=${BGE_BASE_EN_V15_EMBEDDING_MODEL}`,
     ],
   },
 ]
@@ -110,7 +110,7 @@ export function buildEmbeddingAdminStatus(config: AppConfig): EmbeddingAdminStat
       envVars: mode.id === "openai"
         ? [...mode.envVars, `EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL}`]
         : mode.id === "local"
-          ? [...mode.envVars, `EMBEDDING_MODEL=${BGE_M3_EMBEDDING_MODEL}`]
+          ? [...mode.envVars, `EMBEDDING_MODEL=${BGE_BASE_EN_V15_EMBEDDING_MODEL} or ${BGE_SMALL_EN_V15_EMBEDDING_MODEL}`]
           : mode.envVars,
     })),
   }
@@ -147,8 +147,11 @@ export async function probeEmbeddingProvider(config: AppConfig, fetchImpl: typeo
     try {
       const response = await fetchImpl(`${embedderUrl}/health`, { signal: AbortSignal.timeout(3_000) })
       if (!response.ok) return { ok: false as const, detail: `Embedder health returned ${response.status}.` }
-      const payload = (await response.json()) as { status?: string }
+      const payload = (await response.json()) as { status?: string; model?: string; dimension?: number }
       if (payload.status !== "ok") return { ok: false as const, detail: "Embedder health check did not report ok." }
+      if (payload.dimension && payload.dimension !== ai.embeddingDimension) {
+        return { ok: false as const, detail: `Embedder reports ${payload.dimension} dimensions, expected ${ai.embeddingDimension}.` }
+      }
       return { ok: true as const }
     } catch (error) {
       return {
@@ -167,8 +170,8 @@ export async function runEmbeddingSmokeTest(config: AppConfig, sample = "Marina 
   const [embedding] = await provider.embedTexts([sample])
   const latencyMs = Date.now() - started
 
-  if (embedding.length !== EMBEDDING_DIMENSION) {
-    throw new Error(`Expected ${EMBEDDING_DIMENSION} dimensions, received ${embedding.length}`)
+  if (embedding.length !== provider.dimension) {
+    throw new Error(`Expected ${provider.dimension} dimensions, received ${embedding.length}`)
   }
 
   return {

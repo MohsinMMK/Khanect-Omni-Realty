@@ -1,5 +1,7 @@
 import {
   createEmbeddingProviderFromConfig,
+  getLocalEmbeddingPresetByModel,
+  resolveEmbeddingDimension,
   type AppAiEmbeddingConfig,
   type EmbeddingProvider,
   type EmbeddingProviderMode,
@@ -25,6 +27,7 @@ export interface ProjectAiSecrets {
   embeddingApiKey?: string
   embedderUrl?: string
   embeddingModel?: string
+  embeddingDimension?: number
 }
 
 export interface ProjectLlmConfigDto {
@@ -37,6 +40,14 @@ export interface ProjectLlmConfigDto {
   effectiveModel: string
 }
 
+export interface ProjectLlmRuntimeConfig {
+  source: ProjectAiSource
+  apiKey?: string
+  baseUrl: string
+  model: string
+  configured: boolean
+}
+
 export interface ProjectEmbeddingConfigDto {
   source: ProjectAiSource
   provider: EmbeddingProviderMode
@@ -46,6 +57,7 @@ export interface ProjectEmbeddingConfigDto {
   embedderUrl: string | null
   model: string | null
   dimension: number
+  requiresReindex: boolean
   status: "ok" | "misconfigured"
   detail?: string
 }
@@ -70,6 +82,7 @@ export interface ProjectAiConfigUpdateInput {
     apiKey?: string | null
     embedderUrl?: string | null
     model?: string | null
+    dimension?: number | null
   }
 }
 
@@ -88,6 +101,13 @@ export type ProjectAnswerProvider = (input: ProjectAnswerProviderInput) => Promi
 export interface ProjectAiRuntimeResolver {
   resolveEmbeddingProvider(projectId: string): Promise<EmbeddingProvider>
   resolveAnswerProvider(projectId: string): Promise<ProjectAnswerProvider | undefined>
+  resolveLlmConfig(projectId: string): Promise<ProjectLlmRuntimeConfig>
+}
+
+export function joinBaseUrlPath(baseUrl: string, path: string): URL {
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`
+  const normalizedPath = path.replace(/^\/+/, "")
+  return new URL(normalizedPath, normalizedBase)
 }
 
 function resolveEffectiveLlm(secrets: ProjectAiSecrets | null, platform: ProjectAiPlatformConfig) {
@@ -104,6 +124,20 @@ function resolveEffectiveLlm(secrets: ProjectAiSecrets | null, platform: Project
   }
 }
 
+export function resolveProjectLlmRuntime(
+  secrets: ProjectAiSecrets | null,
+  platform: ProjectAiPlatformConfig,
+): ProjectLlmRuntimeConfig {
+  const llm = resolveEffectiveLlm(secrets, platform)
+  return {
+    source: llm.source,
+    apiKey: llm.apiKey,
+    baseUrl: llm.baseUrl,
+    model: llm.model,
+    configured: llm.configured,
+  }
+}
+
 function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: ProjectAiPlatformConfig) {
   const useProject = secrets?.embeddingSource === "project"
   const provider = useProject
@@ -117,6 +151,14 @@ function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: P
     : provider === "openai"
       ? platform.openAiEmbeddingModel
       : platform.embeddingModel
+  const preset = provider === "local" ? getLocalEmbeddingPresetByModel(model) : undefined
+  const dimension = useProject
+    ? resolveEmbeddingDimension({
+      provider,
+      model,
+      fallbackDimension: secrets?.embeddingDimension ?? platform.embeddingDimension,
+    })
+    : resolveEmbeddingDimension({ provider, model, fallbackDimension: platform.embeddingDimension })
 
   let status: "ok" | "misconfigured" = "ok"
   let detail: string | undefined
@@ -135,13 +177,21 @@ function resolveEffectiveEmbedding(secrets: ProjectAiSecrets | null, platform: P
       : "Set EMBEDDER_URL on the server or configure a project embedder URL."
   }
 
+  if (provider === "local" && !preset) {
+    status = "misconfigured"
+    detail = `Choose a supported local embedding preset. "${model}" is not in the local BGE catalog.`
+  }
+
   return {
     provider,
     configuredProvider: useProject ? secrets?.embeddingProvider ?? null : null,
     apiKey,
     embedderUrl: embedderUrl ?? null,
     model: model ?? null,
-    dimension: platform.embeddingDimension,
+    dimension,
+    requiresReindex: useProject
+      ? Boolean(secrets?.embeddingDimension && secrets.embeddingDimension !== dimension)
+      : false,
     source: secrets?.embeddingSource ?? "platform",
     configured: provider === "openai"
       ? Boolean(apiKey)
@@ -184,6 +234,7 @@ export function buildProjectAiConfigDto(
       embedderUrl: embedding.embedderUrl,
       model: embedding.model,
       dimension: embedding.dimension,
+      requiresReindex: embedding.requiresReindex,
       status: embedding.status,
       detail: embedding.detail,
     },
@@ -228,7 +279,7 @@ export function createProjectAnswerProvider(
   if (!llm.apiKey) return undefined
 
   return async ({ message, sources }) => {
-    const response = await fetchImpl(new URL("/chat/completions", llm.baseUrl), {
+    const response = await fetchImpl(joinBaseUrlPath(llm.baseUrl, "chat/completions"), {
       method: "POST",
       headers: {
         authorization: `Bearer ${llm.apiKey}`,
@@ -275,6 +326,10 @@ export function createProjectAiRuntimeResolver(
     async resolveAnswerProvider(projectId) {
       const secrets = await loadSecrets(projectId)
       return createProjectAnswerProvider(secrets, platform, fetchImpl)
+    },
+    async resolveLlmConfig(projectId) {
+      const secrets = await loadSecrets(projectId)
+      return resolveProjectLlmRuntime(secrets, platform)
     },
   }
 }

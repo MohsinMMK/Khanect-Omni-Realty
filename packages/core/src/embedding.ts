@@ -1,9 +1,27 @@
+import {
+  BGE_BASE_EN_V15_EMBEDDING_MODEL,
+  isSupportedLocalEmbeddingModel,
+  resolveEmbeddingDimension,
+} from "./embedding-catalog.js"
+
 export const STUB_EMBEDDING_MODEL = "stub/hash-v1"
 export const BGE_M3_EMBEDDING_MODEL = "BAAI/bge-m3"
 export const OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 export const EMBEDDING_DIMENSION = 1024
 
 export type EmbeddingProviderMode = "stub" | "local" | "openai"
+export {
+  BGE_BASE_EN_V15_DIMENSION,
+  BGE_BASE_EN_V15_EMBEDDING_MODEL,
+  BGE_SMALL_EN_V15_DIMENSION,
+  BGE_SMALL_EN_V15_EMBEDDING_MODEL,
+  getLocalEmbeddingPresetByModel,
+  isSupportedLocalEmbeddingModel,
+  localEmbeddingModelPresets,
+  resolveEmbeddingDimension,
+  type EmbeddingModelPreset,
+  type EmbeddingModelPresetId,
+} from "./embedding-catalog.js"
 
 export interface EmbeddingProvider {
   readonly model: string
@@ -75,8 +93,8 @@ function validateEmbeddings(embeddings: Array<number[] | undefined>, dimension: 
 }
 
 export function createHttpEmbeddingProvider(options: HttpEmbeddingProviderOptions): EmbeddingProvider {
-  const model = options.model ?? BGE_M3_EMBEDDING_MODEL
-  const dimension = options.dimension ?? EMBEDDING_DIMENSION
+  const model = options.model ?? BGE_BASE_EN_V15_EMBEDDING_MODEL
+  const dimension = options.dimension ?? resolveEmbeddingDimension({ provider: "local", model })
   const fetchImpl = options.fetchImpl ?? fetch
   const baseUrl = options.baseUrl.replace(/\/$/, "")
 
@@ -194,7 +212,10 @@ function createMisconfiguredEmbeddingProvider(
 }
 
 export function createEmbeddingProviderFromConfig(config: EmbeddingProviderConfig): EmbeddingProvider {
-  const dimension = config.dimension ?? EMBEDDING_DIMENSION
+  const dimension = config.dimension ?? resolveEmbeddingDimension({
+    provider: config.provider,
+    model: config.provider === "openai" ? config.openAiEmbeddingModel : config.embeddingModel,
+  })
 
   if (config.provider === "openai") {
     const apiKey = config.openAiApiKey?.trim()
@@ -220,6 +241,14 @@ export function createEmbeddingProviderFromConfig(config: EmbeddingProviderConfi
       return createMisconfiguredEmbeddingProvider(
         "local",
         "Local embedding provider requires EMBEDDER_URL",
+        config.embeddingModel,
+      )
+    }
+
+    if (!isSupportedLocalEmbeddingModel(config.embeddingModel)) {
+      return createMisconfiguredEmbeddingProvider(
+        "local",
+        `Unsupported local embedding model "${config.embeddingModel}". Choose BGE small or BGE base from the catalog.`,
         config.embeddingModel,
       )
     }

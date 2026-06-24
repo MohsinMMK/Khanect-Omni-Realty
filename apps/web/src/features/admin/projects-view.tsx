@@ -1,4 +1,8 @@
-import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert"
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@workspace/ui/components/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,7 +15,15 @@ import {
 } from "@workspace/ui/components/alert-dialog"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +32,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@workspace/ui/components/drawer"
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@workspace/ui/components/empty"
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@workspace/ui/components/drawer"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@workspace/ui/components/empty"
 import { Checkbox } from "@workspace/ui/components/checkbox"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
 import { Input } from "@workspace/ui/components/input"
@@ -45,12 +71,19 @@ import { useRef, useState } from "react"
 
 import { api, getErrorMessage } from "@/lib/api"
 import { capabilityOptions, capabilityPayload } from "@/lib/capabilities"
-import { cleanFileTitle, inferContentType } from "@/lib/content-helpers"
+import { extractDocumentUpload, supportedDocumentUploadAccept } from "@/lib/content-helpers"
 import { AlertCallout } from "./components"
 import { newBotSteps } from "./constants"
 import { ProjectAiKeyBadges } from "./project-ai-key-badges"
 import { ProjectAiSettingsDrawer } from "./project-ai-settings-drawer"
-import type { Chatbot, ChatAnswer, ContentItem, NewBotStepKey, Project, ProjectAiKeySummary } from "./types"
+import type {
+  Chatbot,
+  ChatAnswer,
+  ContentItem,
+  NewBotStepKey,
+  Project,
+  ProjectAiKeySummary,
+} from "./types"
 
 export function ProjectsView(props: {
   projects: Project[]
@@ -62,21 +95,34 @@ export function ProjectsView(props: {
   onCreated: (project: Project, chatbot: Chatbot) => void
   onChatbotCreated: (chatbot: Chatbot) => void
   onProjectUpdated: (project: Project) => void
-  onProjectAiKeysUpdated: (projectId: string, aiKeys: ProjectAiKeySummary) => void
+  onProjectAiKeysUpdated: (
+    projectId: string,
+    aiKeys: ProjectAiKeySummary
+  ) => void
   onProjectDeleted: (projectId: string) => void
   onStart: (projectId: string) => void
 }) {
-  const selectedChatbot = props.chatbots.find((chatbot) => chatbot.id === props.selectedChatbotId)
+  const selectedChatbot = props.chatbots.find(
+    (chatbot) => chatbot.id === props.selectedChatbotId
+  )
   const [projectActionId, setProjectActionId] = useState<string | null>(null)
   const [projectActionError, setProjectActionError] = useState("")
-  const [confirmingProjectAction, setConfirmingProjectAction] = useState<{ type: "archive" | "unarchive" | "delete"; project: Project } | null>(null)
-  const [aiSettingsProject, setAiSettingsProject] = useState<Project | null>(null)
+  const [confirmingProjectAction, setConfirmingProjectAction] = useState<{
+    type: "archive" | "unarchive" | "delete"
+    project: Project
+  } | null>(null)
+  const [aiSettingsProject, setAiSettingsProject] = useState<Project | null>(
+    null
+  )
 
   async function archiveProject(project: Project) {
     setProjectActionId(project.id)
     setProjectActionError("")
     try {
-      const response = await api<{ project: Project }>(`/admin/projects/${project.id}/archive`, { method: "POST" })
+      const response = await api<{ project: Project }>(
+        `/admin/projects/${project.id}/archive`,
+        { method: "POST" }
+      )
       props.onProjectUpdated(response.project)
       setConfirmingProjectAction(null)
     } catch (apiError) {
@@ -90,7 +136,10 @@ export function ProjectsView(props: {
     setProjectActionId(project.id)
     setProjectActionError("")
     try {
-      const response = await api<{ project: Project }>(`/admin/projects/${project.id}/unarchive`, { method: "POST" })
+      const response = await api<{ project: Project }>(
+        `/admin/projects/${project.id}/unarchive`,
+        { method: "POST" }
+      )
       props.onProjectUpdated(response.project)
       setConfirmingProjectAction(null)
     } catch (apiError) {
@@ -104,7 +153,9 @@ export function ProjectsView(props: {
     setProjectActionId(project.id)
     setProjectActionError("")
     try {
-      await api<{ project: Project }>(`/admin/projects/${project.id}`, { method: "DELETE" })
+      await api<{ project: Project }>(`/admin/projects/${project.id}`, {
+        method: "DELETE",
+      })
       props.onProjectDeleted(project.id)
       setConfirmingProjectAction(null)
     } catch (apiError) {
@@ -118,11 +169,19 @@ export function ProjectsView(props: {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-heading text-base font-medium">Projects</h2>
-        {props.projects.length > 0 && <CreateWorkspaceButton onCreated={props.onCreated} />}
+        {props.projects.length > 0 && (
+          <CreateWorkspaceButton onCreated={props.onCreated} />
+        )}
       </div>
 
       <div className="grid gap-5">
-        {projectActionError && <AlertCallout title="Project action failed" description={projectActionError} variant="destructive" />}
+        {projectActionError && (
+          <AlertCallout
+            title="Project action failed"
+            description={projectActionError}
+            variant="destructive"
+          />
+        )}
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {props.projects.length === 0 && (
             <Empty className="min-h-96 border bg-muted/20 md:col-span-2 xl:col-span-3">
@@ -132,11 +191,16 @@ export function ProjectsView(props: {
                 </EmptyMedia>
                 <EmptyTitle>No Omni Realty projects yet</EmptyTitle>
                 <EmptyDescription>
-                  Create a real estate project to connect a website domain, launch a chatbot, and organize approved property knowledge for visitors.
+                  Create a real estate project to connect a website domain,
+                  launch a chatbot, and organize approved property knowledge for
+                  visitors.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
-                <CreateWorkspaceButton onCreated={props.onCreated} variant="default" />
+                <CreateWorkspaceButton
+                  onCreated={props.onCreated}
+                  variant="default"
+                />
               </EmptyContent>
             </Empty>
           )}
@@ -144,19 +208,40 @@ export function ProjectsView(props: {
             const isSelected = project.id === props.selectedProjectId
             const isArchived = project.status === "archived"
             return (
-              <Card key={project.id} className={cn("border shadow-none", isSelected && "border-primary")} size="sm">
+              <Card
+                key={project.id}
+                className={cn(
+                  "border shadow-none",
+                  isSelected && "border-primary"
+                )}
+                size="sm"
+              >
                 <CardHeader>
                   <CardTitle className="truncate">{project.name}</CardTitle>
-                  <CardDescription className="truncate">{project.domain ?? "Domain not added yet"}</CardDescription>
+                  <CardDescription className="truncate">
+                    {project.domain ?? "Domain not added yet"}
+                  </CardDescription>
                   <CardAction className="flex items-center gap-1">
-                    <Badge variant={isArchived ? "outline" : "secondary"}>{project.status}</Badge>
+                    <Badge variant={isArchived ? "outline" : "secondary"}>
+                      {project.status}
+                    </Badge>
                     <DropdownMenu>
-                      <DropdownMenuTrigger render={<Button aria-label={`${project.name} actions`} size="icon-sm" variant="ghost" />}>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            aria-label={`${project.name} actions`}
+                            size="icon-sm"
+                            variant="ghost"
+                          />
+                        }
+                      >
                         <MoreHorizontal data-icon="inline-start" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuGroup>
-                          <DropdownMenuItem onClick={() => setAiSettingsProject(project)}>
+                          <DropdownMenuItem
+                            onClick={() => setAiSettingsProject(project)}
+                          >
                             <KeyRound data-icon="inline-start" />
                             AI keys
                           </DropdownMenuItem>
@@ -164,12 +249,28 @@ export function ProjectsView(props: {
                         <DropdownMenuSeparator />
                         <DropdownMenuGroup>
                           {isArchived ? (
-                            <DropdownMenuItem disabled={projectActionId === project.id} onClick={() => setConfirmingProjectAction({ type: "unarchive", project })}>
+                            <DropdownMenuItem
+                              disabled={projectActionId === project.id}
+                              onClick={() =>
+                                setConfirmingProjectAction({
+                                  type: "unarchive",
+                                  project,
+                                })
+                              }
+                            >
                               <ArchiveRestore data-icon="inline-start" />
                               Unarchive project
                             </DropdownMenuItem>
                           ) : (
-                            <DropdownMenuItem disabled={projectActionId === project.id} onClick={() => setConfirmingProjectAction({ type: "archive", project })}>
+                            <DropdownMenuItem
+                              disabled={projectActionId === project.id}
+                              onClick={() =>
+                                setConfirmingProjectAction({
+                                  type: "archive",
+                                  project,
+                                })
+                              }
+                            >
                               <Archive data-icon="inline-start" />
                               Archive project
                             </DropdownMenuItem>
@@ -178,9 +279,16 @@ export function ProjectsView(props: {
                         <DropdownMenuSeparator />
                         <DropdownMenuGroup>
                           <DropdownMenuItem
-                            disabled={!isArchived || projectActionId === project.id}
+                            disabled={
+                              !isArchived || projectActionId === project.id
+                            }
                             variant="destructive"
-                            onClick={() => setConfirmingProjectAction({ type: "delete", project })}
+                            onClick={() =>
+                              setConfirmingProjectAction({
+                                type: "delete",
+                                project,
+                              })
+                            }
                           >
                             <Trash2 data-icon="inline-start" />
                             Delete project
@@ -192,27 +300,43 @@ export function ProjectsView(props: {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <ProjectAiKeyBadges
-                    aiKeys={project.aiKeys ?? { llmSource: "platform", embeddingSource: "platform" }}
+                    aiKeys={
+                      project.aiKeys ?? {
+                        llmSource: "platform",
+                        embeddingSource: "platform",
+                      }
+                    }
                   />
                   <div className="text-sm text-muted-foreground">
                     {isArchived
                       ? "Archived project. Delete is available from the actions menu."
                       : isSelected
-                      ? selectedChatbot
-                        ? `Assistant: ${selectedChatbot.name}`
-                        : "Create a chatbot to start adding content."
-                      : "Select this project to manage its assistant."}
+                        ? selectedChatbot
+                          ? `Assistant: ${selectedChatbot.name}`
+                          : "Create a chatbot to start adding content."
+                        : "Select this project to manage its assistant."}
                   </div>
                 </CardContent>
                 <Separator />
                 <CardFooter className="gap-2">
                   {!isSelected && (
-                    <Button className="flex-1" size="sm" variant="outline" onClick={() => props.onProjectChange(project.id)}>
+                    <Button
+                      className="flex-1"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => props.onProjectChange(project.id)}
+                    >
                       Select project
                     </Button>
                   )}
                   {isSelected && selectedChatbot && (
-                    <Button className="flex-1" disabled={isArchived} size="sm" variant="outline" onClick={() => props.onStart(project.id)}>
+                    <Button
+                      className="flex-1"
+                      disabled={isArchived}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => props.onStart(project.id)}
+                    >
                       <SendHorizontal data-icon="inline-start" />
                       Open content
                     </Button>
@@ -237,51 +361,76 @@ export function ProjectsView(props: {
       <ProjectAiSettingsDrawer
         open={Boolean(aiSettingsProject)}
         project={aiSettingsProject}
-        onOpenChange={(open) => { if (!open) setAiSettingsProject(null) }}
+        onOpenChange={(open) => {
+          if (!open) setAiSettingsProject(null)
+        }}
         onSaved={(projectId, aiKeys) => {
           props.onProjectAiKeysUpdated(projectId, aiKeys)
         }}
       />
 
-      <AlertDialog open={Boolean(confirmingProjectAction)} onOpenChange={(open) => { if (!open) setConfirmingProjectAction(null) }}>
+      <AlertDialog
+        open={Boolean(confirmingProjectAction)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmingProjectAction(null)
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmingProjectAction?.type === "delete"
                 ? "Delete project?"
                 : confirmingProjectAction?.type === "unarchive"
-                ? "Unarchive project?"
-                : "Archive project?"}
+                  ? "Unarchive project?"
+                  : "Archive project?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmingProjectAction?.type === "delete"
                 ? `This permanently deletes "${confirmingProjectAction.project.name}" and its chatbots. Projects must be archived before deletion.`
                 : confirmingProjectAction?.type === "unarchive"
-                ? `Unarchive "${confirmingProjectAction.project.name}" to open its content and create chatbots again.`
-                : `Archive "${confirmingProjectAction?.project.name}" before deletion. Archived projects cannot open content or create new chatbots.`}
+                  ? `Unarchive "${confirmingProjectAction.project.name}" to open its content and create chatbots again.`
+                  : `Archive "${confirmingProjectAction?.project.name}" before deletion. Archived projects cannot open content or create new chatbots.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             {confirmingProjectAction?.type === "delete" ? (
               <AlertDialogAction
-                disabled={!confirmingProjectAction || projectActionId === confirmingProjectAction.project.id}
+                disabled={
+                  !confirmingProjectAction ||
+                  projectActionId === confirmingProjectAction.project.id
+                }
                 variant="destructive"
-                onClick={() => { if (confirmingProjectAction) void deleteProject(confirmingProjectAction.project) }}
+                onClick={() => {
+                  if (confirmingProjectAction)
+                    void deleteProject(confirmingProjectAction.project)
+                }}
               >
                 Delete project
               </AlertDialogAction>
             ) : confirmingProjectAction?.type === "unarchive" ? (
               <AlertDialogAction
-                disabled={!confirmingProjectAction || projectActionId === confirmingProjectAction.project.id}
-                onClick={() => { if (confirmingProjectAction) void unarchiveProject(confirmingProjectAction.project) }}
+                disabled={
+                  !confirmingProjectAction ||
+                  projectActionId === confirmingProjectAction.project.id
+                }
+                onClick={() => {
+                  if (confirmingProjectAction)
+                    void unarchiveProject(confirmingProjectAction.project)
+                }}
               >
                 Unarchive project
               </AlertDialogAction>
             ) : (
               <AlertDialogAction
-                disabled={!confirmingProjectAction || projectActionId === confirmingProjectAction.project.id}
-                onClick={() => { if (confirmingProjectAction) void archiveProject(confirmingProjectAction.project) }}
+                disabled={
+                  !confirmingProjectAction ||
+                  projectActionId === confirmingProjectAction.project.id
+                }
+                onClick={() => {
+                  if (confirmingProjectAction)
+                    void archiveProject(confirmingProjectAction.project)
+                }}
               >
                 Archive project
               </AlertDialogAction>
@@ -305,7 +454,9 @@ function CreateWorkspaceButton({
   const [projectName, setProjectName] = useState("")
   const [domain, setDomain] = useState("")
   const [chatbotName, setChatbotName] = useState("Website assistant")
-  const [purpose, setPurpose] = useState("Answer FAQs, qualify leads, and prepare bookings")
+  const [purpose, setPurpose] = useState(
+    "Answer FAQs, qualify leads, and prepare bookings"
+  )
   const [capabilities, setCapabilities] = useState(["faq", "leadCapture"])
   const [error, setError] = useState("")
 
@@ -313,18 +464,24 @@ function CreateWorkspaceButton({
     setSaving(true)
     setError("")
     try {
-      const projectResponse = await api<{ project: Project }>("/admin/projects", {
-        method: "POST",
-        body: { name: projectName.trim(), domain: domain.trim() || null },
-      })
-      const chatbotResponse = await api<{ chatbot: Chatbot }>(`/admin/projects/${projectResponse.project.id}/chatbots`, {
-        method: "POST",
-        body: {
-          name: chatbotName.trim(),
-          purpose: purpose.trim(),
-          capabilities: capabilityPayload(capabilities),
-        },
-      })
+      const projectResponse = await api<{ project: Project }>(
+        "/admin/projects",
+        {
+          method: "POST",
+          body: { name: projectName.trim(), domain: domain.trim() || null },
+        }
+      )
+      const chatbotResponse = await api<{ chatbot: Chatbot }>(
+        `/admin/projects/${projectResponse.project.id}/chatbots`,
+        {
+          method: "POST",
+          body: {
+            name: chatbotName.trim(),
+            purpose: purpose.trim(),
+            capabilities: capabilityPayload(capabilities),
+          },
+        }
+      )
       onCreated(projectResponse.project, chatbotResponse.chatbot)
       setOpen(false)
       setProjectName("")
@@ -349,33 +506,66 @@ function CreateWorkspaceButton({
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>New business project</DrawerTitle>
-            <DrawerDescription>Create the project and its first chatbot from the web app.</DrawerDescription>
+            <DrawerDescription>
+              Create the project and its first chatbot from the web app.
+            </DrawerDescription>
           </DrawerHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-4">
-            {error && <AlertCallout title="Request failed" description={error} variant="destructive" />}
+            {error && (
+              <AlertCallout
+                title="Request failed"
+                description={error}
+                variant="destructive"
+              />
+            )}
             <FieldGroup>
               <Field>
                 <FieldLabel>Project name</FieldLabel>
-                <Input placeholder="Business name" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+                <Input
+                  placeholder="Business name"
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
               </Field>
               <Field>
                 <FieldLabel>Website domain</FieldLabel>
-                <Input placeholder="business.example" value={domain} onChange={(event) => setDomain(event.target.value)} />
+                <Input
+                  placeholder="business.example"
+                  value={domain}
+                  onChange={(event) => setDomain(event.target.value)}
+                />
               </Field>
               <Field>
                 <FieldLabel>First chatbot name</FieldLabel>
-                <Input value={chatbotName} onChange={(event) => setChatbotName(event.target.value)} />
+                <Input
+                  value={chatbotName}
+                  onChange={(event) => setChatbotName(event.target.value)}
+                />
               </Field>
               <Field>
                 <FieldLabel>Purpose</FieldLabel>
-                <Textarea className="min-h-24" value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+                <Textarea
+                  className="min-h-24"
+                  value={purpose}
+                  onChange={(event) => setPurpose(event.target.value)}
+                />
               </Field>
-              <CapabilityPicker value={capabilities} onChange={setCapabilities} />
+              <CapabilityPicker
+                value={capabilities}
+                onChange={setCapabilities}
+              />
             </FieldGroup>
           </div>
           <DrawerFooter>
-            <Button disabled={!projectName.trim() || !chatbotName.trim() || saving} onClick={createWorkspace}>{saving ? "Creating..." : "Create project"}</Button>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              disabled={!projectName.trim() || !chatbotName.trim() || saving}
+              onClick={createWorkspace}
+            >
+              {saving ? "Creating..." : "Create project"}
+            </Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -401,7 +591,9 @@ function CreateChatbotButton({
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState("Website assistant")
-  const [purpose, setPurpose] = useState("Answer approved questions from website visitors")
+  const [purpose, setPurpose] = useState(
+    "Answer approved questions from website visitors"
+  )
   const [capabilities, setCapabilities] = useState(["faq"])
   const [error, setError] = useState("")
 
@@ -409,10 +601,17 @@ function CreateChatbotButton({
     setSaving(true)
     setError("")
     try {
-      const response = await api<{ chatbot: Chatbot }>(`/admin/projects/${projectId}/chatbots`, {
-        method: "POST",
-        body: { name: name.trim(), purpose: purpose.trim(), capabilities: capabilityPayload(capabilities) },
-      })
+      const response = await api<{ chatbot: Chatbot }>(
+        `/admin/projects/${projectId}/chatbots`,
+        {
+          method: "POST",
+          body: {
+            name: name.trim(),
+            purpose: purpose.trim(),
+            capabilities: capabilityPayload(capabilities),
+          },
+        }
+      )
       onCreated(response.chatbot)
       setOpen(false)
       setName("Website assistant")
@@ -427,7 +626,13 @@ function CreateChatbotButton({
 
   return (
     <>
-      <Button className={className} size={size} variant="outline" onClick={() => setOpen(true)} disabled={disabled || saving}>
+      <Button
+        className={className}
+        size={size}
+        variant="outline"
+        onClick={() => setOpen(true)}
+        disabled={disabled || saving}
+      >
         <FilePlus2 data-icon="inline-start" />
         {label}
       </Button>
@@ -435,25 +640,47 @@ function CreateChatbotButton({
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>New chatbot</DrawerTitle>
-            <DrawerDescription>Add another chatbot to the selected business project.</DrawerDescription>
+            <DrawerDescription>
+              Add another chatbot to the selected business project.
+            </DrawerDescription>
           </DrawerHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-4">
-            {error && <AlertCallout title="Request failed" description={error} variant="destructive" />}
+            {error && (
+              <AlertCallout
+                title="Request failed"
+                description={error}
+                variant="destructive"
+              />
+            )}
             <FieldGroup>
               <Field>
                 <FieldLabel>Chatbot name</FieldLabel>
-                <Input value={name} onChange={(event) => setName(event.target.value)} />
+                <Input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </Field>
               <Field>
                 <FieldLabel>Purpose</FieldLabel>
-                <Textarea className="min-h-24" value={purpose} onChange={(event) => setPurpose(event.target.value)} />
+                <Textarea
+                  className="min-h-24"
+                  value={purpose}
+                  onChange={(event) => setPurpose(event.target.value)}
+                />
               </Field>
-              <CapabilityPicker value={capabilities} onChange={setCapabilities} />
+              <CapabilityPicker
+                value={capabilities}
+                onChange={setCapabilities}
+              />
             </FieldGroup>
           </div>
           <DrawerFooter>
-            <Button disabled={!name.trim() || saving} onClick={createChatbot}>{saving ? "Creating..." : "Create chatbot"}</Button>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button disabled={!name.trim() || saving} onClick={createChatbot}>
+              {saving ? "Creating..." : "Create chatbot"}
+            </Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
@@ -483,11 +710,16 @@ export function NewBotSetupButton({
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState("")
   const [uploadedTitles, setUploadedTitles] = useState<string[]>([])
-  const [testMessage, setTestMessage] = useState("What can this chatbot help with?")
+  const [testMessage, setTestMessage] = useState(
+    "What can this chatbot help with?"
+  )
   const [testAnswer, setTestAnswer] = useState<ChatAnswer | null>(null)
   const newBotFileInputRef = useRef<HTMLInputElement | null>(null)
   const createdChatbotRef = useRef<Chatbot | null>(null)
-  const createReady = name.trim().length > 0 && purpose.trim().length > 0 && capabilities.length > 0
+  const createReady =
+    name.trim().length > 0 &&
+    purpose.trim().length > 0 &&
+    capabilities.length > 0
   const botCreated = Boolean(createdChatbot)
   const knowledgeReady = botCreated || createReady
   const sourcesReady = uploadedTitles.length > 0
@@ -526,10 +758,17 @@ export function NewBotSetupButton({
     setSaving(true)
     setError("")
     try {
-      const response = await api<{ chatbot: Chatbot }>(`/admin/projects/${projectId}/chatbots`, {
-        method: "POST",
-        body: { name: name.trim(), purpose: purpose.trim(), capabilities: capabilityPayload(capabilities) },
-      })
+      const response = await api<{ chatbot: Chatbot }>(
+        `/admin/projects/${projectId}/chatbots`,
+        {
+          method: "POST",
+          body: {
+            name: name.trim(),
+            purpose: purpose.trim(),
+            capabilities: capabilityPayload(capabilities),
+          },
+        }
+      )
       setCreatedChatbot(response.chatbot)
       createdChatbotRef.current = response.chatbot
       onCreated(response.chatbot)
@@ -564,18 +803,22 @@ export function NewBotSetupButton({
     const nextTitles: string[] = []
     try {
       for (const file of Array.from(files)) {
-        const body = (await file.text()).trim()
-        if (!body) continue
-        const title = cleanFileTitle(file.name)
-        await api<{ item: ContentItem }>(`/admin/chatbots/${chatbot.id}/content`, {
+        const document = await extractDocumentUpload(file)
+        const created = await api<{ item: ContentItem }>(
+          `/admin/chatbots/${chatbot.id}/content`,
+          {
+            method: "POST",
+            body: {
+              title: document.title,
+              body: document.body,
+              contentType: document.contentType,
+            },
+          }
+        )
+        await api(`/admin/chatbots/${chatbot.id}/content/${created.item.id}/publish`, {
           method: "POST",
-          body: {
-            title,
-            body: body.slice(0, 50000),
-            contentType: inferContentType(file.name),
-          },
         })
-        nextTitles.push(title)
+        nextTitles.push(document.title)
       }
       setUploadedTitles((current) => [...nextTitles, ...current])
       onSetupChanged(chatbot.id)
@@ -593,10 +836,13 @@ export function NewBotSetupButton({
     setError("")
     setTestAnswer(null)
     try {
-      const response = await api<ChatAnswer>(`/admin/chatbots/${createdChatbot.id}/test-message`, {
-        method: "POST",
-        body: { message: testMessage },
-      })
+      const response = await api<ChatAnswer>(
+        `/admin/chatbots/${createdChatbot.id}/test-message`,
+        {
+          method: "POST",
+          body: { message: testMessage },
+        }
+      )
       setTestAnswer(response)
     } catch (apiError) {
       setError(getErrorMessage(apiError))
@@ -607,7 +853,8 @@ export function NewBotSetupButton({
 
   function selectStep(step: NewBotStepKey) {
     const stepIndex = newBotSteps.findIndex((item) => item.key === step)
-    if (stepIndex <= maxUnlockedStepIndex) setActiveStep(step === "create" && botCreated ? "knowledge" : step)
+    if (stepIndex <= maxUnlockedStepIndex)
+      setActiveStep(step === "create" && botCreated ? "knowledge" : step)
   }
 
   function renderSetupBody() {
@@ -618,7 +865,7 @@ export function NewBotSetupButton({
           className="hidden"
           type="file"
           multiple
-          accept=".txt,.md,.markdown,.csv,.json,.html,.htm"
+          accept={supportedDocumentUploadAccept}
           onChange={(event) => void uploadDocuments(event.currentTarget.files)}
         />
         <div className="rounded-2xl bg-background p-4">
@@ -626,7 +873,12 @@ export function NewBotSetupButton({
           <FieldGroup className="gap-4">
             <Field data-disabled={botCreated}>
               <FieldLabel>Name</FieldLabel>
-              <Input placeholder="Website assistant" readOnly={botCreated} value={name} onChange={(event) => setName(event.target.value)} />
+              <Input
+                placeholder="Website assistant"
+                readOnly={botCreated}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
             </Field>
             <Field data-disabled={botCreated}>
               <FieldLabel>Purpose</FieldLabel>
@@ -638,11 +890,20 @@ export function NewBotSetupButton({
                 onChange={(event) => setPurpose(event.target.value)}
               />
             </Field>
-            <CapabilityPicker disabled={botCreated} value={capabilities} onChange={setCapabilities} />
+            <CapabilityPicker
+              disabled={botCreated}
+              value={capabilities}
+              onChange={setCapabilities}
+            />
           </FieldGroup>
         </div>
 
-        <div className={cn("rounded-2xl bg-background p-4", !knowledgeReady && "opacity-50")}>
+        <div
+          className={cn(
+            "rounded-2xl bg-background p-4",
+            !knowledgeReady && "opacity-50"
+          )}
+        >
           <div className="mb-4 font-heading text-lg font-medium">Knowledge</div>
           {uploadedTitles.length === 0 ? (
             <Empty
@@ -667,7 +928,11 @@ export function NewBotSetupButton({
                 </EmptyMedia>
                 <EmptyTitle>Upload source documents</EmptyTitle>
                 <EmptyDescription>
-                  {saving ? "Creating bot..." : uploading ? "Uploading documents..." : "Click here or drag and drop approved source documents."}
+                  {saving
+                    ? "Creating bot..."
+                    : uploading
+                      ? "Uploading documents..."
+                      : "Click here or drag and drop approved source documents."}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -689,7 +954,10 @@ export function NewBotSetupButton({
               }}
             >
               {uploadedTitles.map((title) => (
-                <div key={title} className="rounded-2xl border border-border/60 px-4 py-3 text-sm font-medium">
+                <div
+                  key={title}
+                  className="rounded-2xl border border-border/60 px-4 py-3 text-sm font-medium"
+                >
                   {title}
                 </div>
               ))}
@@ -699,7 +967,6 @@ export function NewBotSetupButton({
             </div>
           )}
         </div>
-
       </div>
     )
   }
@@ -717,14 +984,55 @@ export function NewBotSetupButton({
               onChange={(event) => setTestMessage(event.target.value)}
             />
           </Field>
-          <Button disabled={!testReady || !testMessage.trim() || testing} onClick={() => void testChatbot()}>
+          <Button
+            disabled={!testReady || !testMessage.trim() || testing}
+            onClick={() => void testChatbot()}
+          >
             <SendHorizontal data-icon="inline-start" />
             {testing ? "Testing..." : "Ask"}
           </Button>
           {testAnswer && (
             <Alert>
-              <AlertTitle>Test response</AlertTitle>
-              <AlertDescription className="whitespace-pre-wrap">{testAnswer.answer}</AlertDescription>
+              <AlertTitle className="flex items-center justify-between gap-2">
+                <span>Test response</span>
+                <Badge
+                  variant={
+                    testAnswer.actionTrace.runtime === "agno" &&
+                    testAnswer.actionTrace.mode === "live_agent"
+                      ? "secondary"
+                      : "outline"
+                  }
+                >
+                  {testAnswer.actionTrace.runtime === "agno" &&
+                  testAnswer.actionTrace.mode === "live_agent"
+                    ? "Agno live"
+                    : "Fallback"}
+                </Badge>
+              </AlertTitle>
+              <AlertDescription className="whitespace-pre-wrap">
+                {testAnswer.answer}
+              </AlertDescription>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {typeof testAnswer.actionTrace.policyVersion === "string" && (
+                  <Badge variant="outline">{testAnswer.actionTrace.policyVersion}</Badge>
+                )}
+                {Array.isArray(testAnswer.actionTrace.capabilityIds) && testAnswer.actionTrace.capabilityIds.map((capabilityId) => (
+                  <Badge key={`capability-${capabilityId}`} variant="secondary">
+                    {String(capabilityId).replace(/([A-Z])/g, " $1")}
+                  </Badge>
+                ))}
+                {Array.isArray(testAnswer.actionTrace.toolsEnabled) && (
+                  <Badge variant="outline">
+                    Tools: {testAnswer.actionTrace.toolsEnabled.map(String).join(", ")}
+                  </Badge>
+                )}
+                {Array.isArray(testAnswer.actionTrace.sourceIds) && (
+                  <Badge variant="outline">
+                    Sources: {testAnswer.actionTrace.sourceIds.length}
+                  </Badge>
+                )}
+                {testAnswer.agentTraceId && <Badge variant="outline">Trace {testAnswer.agentTraceId}</Badge>}
+              </div>
             </Alert>
           )}
         </FieldGroup>
@@ -736,11 +1044,23 @@ export function NewBotSetupButton({
         <FieldGroup className="gap-4">
           <Field>
             <FieldLabel>Status</FieldLabel>
-            <Input readOnly value={createdChatbot ? "Ready to manage from content" : "Create the bot first"} />
+            <Input
+              readOnly
+              value={
+                createdChatbot
+                  ? `Runtime ${createdChatbot.runtimeStatus?.replace(/_/g, " ") ?? "provisioning"}`
+                  : "Create the bot first"
+              }
+            />
           </Field>
           <Field>
             <FieldLabel>Knowledge namespace</FieldLabel>
-            <Input readOnly value={createdChatbot?.knowledgeNamespace ?? "Created after bot setup"} />
+            <Input
+              readOnly
+              value={
+                createdChatbot?.knowledgeNamespace ?? "Created after bot setup"
+              }
+            />
           </Field>
         </FieldGroup>
       )
@@ -753,7 +1073,9 @@ export function NewBotSetupButton({
     if (activeStep === "create") {
       return (
         <>
-          <Button variant="outline" onClick={closeSetup}>Cancel</Button>
+          <Button variant="outline" onClick={closeSetup}>
+            Cancel
+          </Button>
           <Button
             disabled={!createReady || saving}
             onClick={() => {
@@ -771,8 +1093,16 @@ export function NewBotSetupButton({
     if (activeStep === "knowledge") {
       return (
         <>
-          <Button variant="outline" onClick={() => setActiveStep("create")}>Back</Button>
-          <Button disabled={!sourcesReady} onClick={() => setActiveStep("test")} variant={sourcesReady ? "default" : "outline"}>Next</Button>
+          <Button variant="outline" onClick={() => setActiveStep("create")}>
+            Back
+          </Button>
+          <Button
+            disabled={!sourcesReady}
+            onClick={() => setActiveStep("test")}
+            variant={sourcesReady ? "default" : "outline"}
+          >
+            Next
+          </Button>
         </>
       )
     }
@@ -780,15 +1110,25 @@ export function NewBotSetupButton({
     if (activeStep === "test") {
       return (
         <>
-          <Button variant="outline" onClick={() => setActiveStep("knowledge")}>Back</Button>
-          <Button disabled={!testAnswer} onClick={() => setActiveStep("finish")} variant={testAnswer ? "default" : "outline"}>Next</Button>
+          <Button variant="outline" onClick={() => setActiveStep("knowledge")}>
+            Back
+          </Button>
+          <Button
+            disabled={!testAnswer}
+            onClick={() => setActiveStep("finish")}
+            variant={testAnswer ? "default" : "outline"}
+          >
+            Next
+          </Button>
         </>
       )
     }
 
     return (
       <>
-        <Button variant="outline" onClick={() => setActiveStep("test")}>Back</Button>
+        <Button variant="outline" onClick={() => setActiveStep("test")}>
+          Back
+        </Button>
         <Button onClick={closeSetup}>Done</Button>
       </>
     )
@@ -796,7 +1136,12 @@ export function NewBotSetupButton({
 
   return (
     <>
-      <Button disabled={disabled} onClick={() => setOpen(true)} size="sm" variant="outline">
+      <Button
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        size="sm"
+        variant="outline"
+      >
         <Plus data-icon="inline-start" />
         New Bot
       </Button>
@@ -811,7 +1156,10 @@ export function NewBotSetupButton({
         <DrawerContent className="data-[vaul-drawer-direction=right]:w-[min(860px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-none">
           <DrawerHeader>
             <DrawerTitle>New bot</DrawerTitle>
-            <DrawerDescription>Complete each step in order: create the bot, upload knowledge, then test it.</DrawerDescription>
+            <DrawerDescription>
+              Complete each step in order: create the bot, upload knowledge,
+              then test it.
+            </DrawerDescription>
           </DrawerHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
@@ -821,7 +1169,13 @@ export function NewBotSetupButton({
                 maxUnlockedStepIndex={maxUnlockedStepIndex}
                 onSelect={selectStep}
               />
-              {error && <AlertCallout title="Request failed" description={error} variant="destructive" />}
+              {error && (
+                <AlertCallout
+                  title="Request failed"
+                  description={error}
+                  variant="destructive"
+                />
+              )}
               <div className="min-h-0 rounded-2xl bg-muted p-4">
                 {renderStepBody()}
               </div>
@@ -852,7 +1206,10 @@ function NewBotStepRail({
     <div className="mx-auto w-full max-w-2xl">
       <div className="grid grid-cols-3 gap-2">
         {newBotSteps.map((step, index) => {
-          const isActive = step.key === "create" ? activeStep === "create" || activeStep === "knowledge" : activeStep === step.key
+          const isActive =
+            step.key === "create"
+              ? activeStep === "create" || activeStep === "knowledge"
+              : activeStep === step.key
           const isUnlocked = index <= maxUnlockedStepIndex
           const isComplete = completedSteps.has(step.key)
 
@@ -873,7 +1230,9 @@ function NewBotStepRail({
               <span
                 className={cn(
                   "flex size-6 items-center justify-center rounded-full border text-xs font-medium",
-                  isComplete ? "border-transparent bg-primary text-primary-foreground" : "border-border bg-background"
+                  isComplete
+                    ? "border-transparent bg-primary text-primary-foreground"
+                    : "border-border bg-background"
                 )}
               >
                 {index + 1}
@@ -887,7 +1246,15 @@ function NewBotStepRail({
   )
 }
 
-export function CapabilityPicker({ disabled = false, value, onChange }: { disabled?: boolean; value: string[]; onChange: (value: string[]) => void }) {
+export function CapabilityPicker({
+  disabled = false,
+  value,
+  onChange,
+}: {
+  disabled?: boolean
+  value: string[]
+  onChange: (value: string[]) => void
+}) {
   return (
     <Field>
       <FieldLabel>Capabilities</FieldLabel>
@@ -897,8 +1264,9 @@ export function CapabilityPicker({ disabled = false, value, onChange }: { disabl
           return (
             <Field
               key={option.value}
-              className="flex-row items-center gap-2 rounded-2xl border border-border/60 px-3 py-2"
+              className="items-start gap-2 rounded-2xl border border-border/60 px-3 py-2"
               data-disabled={disabled || undefined}
+              orientation="horizontal"
             >
               <Checkbox
                 checked={checked}
@@ -909,8 +1277,13 @@ export function CapabilityPicker({ disabled = false, value, onChange }: { disabl
                   else onChange(value.filter((item) => item !== option.value))
                 }}
               />
-              <FieldLabel className="mb-0 font-normal" htmlFor={`capability-${option.value}`}>
-                {option.label}
+              <FieldLabel
+                className="mb-0 flex min-w-0 flex-col gap-1 font-normal"
+                htmlFor={`capability-${option.value}`}
+              >
+                <span>{option.label}</span>
+                <span className="text-xs font-normal text-muted-foreground">{option.description}</span>
+                <span className="text-xs font-normal text-muted-foreground">Enables: {option.tools.join(", ")}</span>
               </FieldLabel>
             </Field>
           )
@@ -920,18 +1293,32 @@ export function CapabilityPicker({ disabled = false, value, onChange }: { disabl
   )
 }
 
-export function GettingStarted({ onCreated }: { onCreated: (project: Project, chatbot: Chatbot) => void }) {
+export function GettingStarted({
+  onCreated,
+}: {
+  onCreated: (project: Project, chatbot: Chatbot) => void
+}) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Create project</CardTitle>
-        <CardAction><CreateWorkspaceButton onCreated={onCreated} /></CardAction>
+        <CardAction>
+          <CreateWorkspaceButton onCreated={onCreated} />
+        </CardAction>
       </CardHeader>
     </Card>
   )
 }
 
-export function ProjectNeedsChatbot({ onBackToProjects, onCreated, project }: { project: Project; onBackToProjects: () => void; onCreated: (chatbot: Chatbot) => void }) {
+export function ProjectNeedsChatbot({
+  onBackToProjects,
+  onCreated,
+  project,
+}: {
+  project: Project
+  onBackToProjects: () => void
+  onCreated: (chatbot: Chatbot) => void
+}) {
   return (
     <Card>
       <CardHeader>
@@ -944,7 +1331,9 @@ export function ProjectNeedsChatbot({ onBackToProjects, onCreated, project }: { 
           projectId={project.id}
           onCreated={onCreated}
         />
-        <Button variant="outline" onClick={onBackToProjects}>Back to projects</Button>
+        <Button variant="outline" onClick={onBackToProjects}>
+          Back to projects
+        </Button>
       </CardFooter>
     </Card>
   )
