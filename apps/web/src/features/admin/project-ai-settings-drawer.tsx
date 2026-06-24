@@ -1,12 +1,10 @@
 import {
-  listOpencodeLlmPresetsByPlan,
   openAiCompatibleEmbeddingPresets,
   OPENAI_COMPATIBLE_EMBEDDINGS_BASE_URL,
   OPENCODE_GO_BASE_URL,
   OPENCODE_ZEN_BASE_URL,
   recommendedEmbeddingPreset,
   recommendedOpencodeLlmPreset,
-  type AiProviderPreset,
 } from "@workspace/core"
 import { localEmbeddingModelPresets } from "@workspace/core/embedding-catalog"
 import { Alert, AlertDescription, AlertTitle } from "@workspace/ui/components/alert"
@@ -17,11 +15,12 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@workspace/ui/c
 import { Input } from "@workspace/ui/components/input"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Separator } from "@workspace/ui/components/separator"
+import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Spinner } from "@workspace/ui/components/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
 import { cn } from "@workspace/ui/lib/utils"
-import { Bot, Cloud, KeyRound, Lock, Server, ShieldCheck, Sparkles } from "lucide-react"
+import { Bot, Cloud, KeyRound, Lock, RefreshCw, Server, ShieldCheck, Sparkles } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
 
 import { api, getErrorMessage } from "@/lib/api"
@@ -32,6 +31,7 @@ import type {
   Project,
   ProjectAiConfig,
   ProjectAiKeySummary,
+  OpenCodeModelCatalog,
   ProjectAiSource,
   ProjectLlmSmokeTestResult,
 } from "./types"
@@ -47,49 +47,71 @@ const recommendedLocalEmbeddingModel =
 function LlmPresetSection({
   title,
   description,
-  presets,
+  catalog,
+  loading,
   selectedModel,
   selectedBaseUrl,
   onSelect,
 }: {
   title: string
   description: string
-  presets: AiProviderPreset[]
+  catalog: OpenCodeModelCatalog | null
+  loading: boolean
   selectedModel: string
   selectedBaseUrl: string
   onSelect: (model: string, baseUrl: string) => void
 }) {
+  const supportedModels = catalog?.models.filter((entry) => entry.supported) ?? []
+  const catalogMeta = catalog
+    ? `${supportedModels.length} supported of ${catalog.models.length} live models · ${catalog.source === "live" ? "synced" : "cached fallback"}`
+    : null
+
   return (
     <div className="flex flex-col gap-3">
       <div>
         <p className="text-sm font-medium">{title}</p>
         <p className="text-sm text-muted-foreground">{description}</p>
+        {catalogMeta && <p className="mt-1 text-xs text-muted-foreground">{catalogMeta}</p>}
+        {catalog?.source === "fallback" && catalog.detail && (
+          <p className="mt-1 text-xs text-amber-600">{catalog.detail}</p>
+        )}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {presets.map((preset) => {
-          const selected = selectedModel === preset.model && selectedBaseUrl === preset.baseUrl
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              className={cn(
-                "rounded-lg border p-4 text-left transition-colors",
-                selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted",
-              )}
-              onClick={() => onSelect(preset.model, preset.baseUrl)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{preset.label}</span>
-                {preset.recommended && <Badge variant="secondary">Recommended</Badge>}
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">{preset.summary}</p>
-              <Badge className="mt-3" variant="outline">
-                {preset.model}
-              </Badge>
-            </button>
-          )
-        })}
-      </div>
+      {loading && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-28 w-full rounded-xl" />
+        </div>
+      )}
+      {!loading && supportedModels.length === 0 && (
+        <p className="text-sm text-muted-foreground">No supported models are available right now.</p>
+      )}
+      {!loading && supportedModels.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {supportedModels.map((preset) => {
+            const selected = selectedModel === preset.model && selectedBaseUrl === preset.baseUrl
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                className={cn(
+                  "rounded-lg border p-4 text-left transition-colors",
+                  selected ? "border-primary bg-primary/10" : "border-border bg-background hover:bg-muted",
+                )}
+                onClick={() => onSelect(preset.model, preset.baseUrl)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{preset.label}</span>
+                  {preset.recommended && <Badge variant="secondary">Recommended</Badge>}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{preset.summary}</p>
+                <Badge className="mt-3" variant="outline">
+                  {preset.model}
+                </Badge>
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -128,6 +150,28 @@ export function ProjectAiSettingsDrawer({
   const [llmTestResult, setLlmTestResult] = useState<ProjectLlmSmokeTestResult | null>(null)
   const [embeddingTestResult, setEmbeddingTestResult] = useState<EmbeddingSmokeTestResult | null>(null)
   const [testError, setTestError] = useState("")
+  const [goCatalog, setGoCatalog] = useState<OpenCodeModelCatalog | null>(null)
+  const [zenCatalog, setZenCatalog] = useState<OpenCodeModelCatalog | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState("")
+
+  const loadOpenCodeModels = useCallback(async (refresh = false) => {
+    setModelsLoading(true)
+    setModelsError("")
+    const refreshQuery = refresh ? "&refresh=1" : ""
+    try {
+      const [go, zen] = await Promise.all([
+        api<OpenCodeModelCatalog>(`/admin/ai/opencode/models?plan=go${refreshQuery}`),
+        api<OpenCodeModelCatalog>(`/admin/ai/opencode/models?plan=zen${refreshQuery}`),
+      ])
+      setGoCatalog(go)
+      setZenCatalog(zen)
+    } catch (apiError) {
+      setModelsError(getErrorMessage(apiError))
+    } finally {
+      setModelsLoading(false)
+    }
+  }, [])
 
   const resetForm = useCallback((next: ProjectAiConfig) => {
     setLlmSource(next.llm.source)
@@ -162,8 +206,11 @@ export function ProjectAiSettingsDrawer({
   }, [project, resetForm])
 
   useEffect(() => {
-    if (open && project) void loadConfig()
-  }, [open, project, loadConfig])
+    if (open && project) {
+      void loadConfig()
+      void loadOpenCodeModels()
+    }
+  }, [open, project, loadConfig, loadOpenCodeModels])
 
   function applyLlmPreset(model: string, baseUrl: string) {
     setLlmModel(model)
@@ -348,11 +395,21 @@ export function ProjectAiSettingsDrawer({
                     {llmSource === "project" && (
                       <>
                         <Field>
-                          <FieldLabel>OpenCode model preset</FieldLabel>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <FieldLabel>OpenCode model preset</FieldLabel>
+                            <Button disabled={modelsLoading} size="sm" variant="outline" onClick={() => void loadOpenCodeModels(true)}>
+                              {modelsLoading ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+                              Refresh models
+                            </Button>
+                          </div>
+                          {modelsError && (
+                            <p className="text-sm text-destructive">{modelsError}</p>
+                          )}
                           <div className="flex flex-col gap-5">
                             <LlmPresetSection
-                              description="Low-cost subscription ($10/mo). Use your Go plan API key from opencode.ai/auth."
-                              presets={listOpencodeLlmPresetsByPlan("go")}
+                              catalog={goCatalog}
+                              description="Low-cost subscription ($10/mo). List auto-syncs from opencode.ai/zen/go/v1/models."
+                              loading={modelsLoading && !goCatalog}
                               selectedBaseUrl={llmBaseUrl}
                               selectedModel={llmModel}
                               title="OpenCode Go"
@@ -360,14 +417,18 @@ export function ProjectAiSettingsDrawer({
                             />
                             <Separator />
                             <LlmPresetSection
-                              description="Pay-as-you-go curated models. Use your Zen API key from opencode.ai/auth."
-                              presets={listOpencodeLlmPresetsByPlan("zen")}
+                              catalog={zenCatalog}
+                              description="Pay-as-you-go curated models. List auto-syncs from opencode.ai/zen/v1/models."
+                              loading={modelsLoading && !zenCatalog}
                               selectedBaseUrl={llmBaseUrl}
                               selectedModel={llmModel}
                               title="OpenCode Zen"
                               onSelect={applyLlmPreset}
                             />
                           </div>
+                          <FieldDescription>
+                            New Go models appear automatically after OpenCode publishes them. Models that use /messages instead of chat/completions are hidden.
+                          </FieldDescription>
                         </Field>
 
                         <Field>

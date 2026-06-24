@@ -67,6 +67,23 @@ export {
   type OpenCodeLlmPlan,
 } from "./ai-provider-catalog.js"
 export {
+  buildOpenCodeModelCatalog,
+  createOpenCodeModelCatalogCache,
+  fetchOpenCodeModelIds,
+  formatOpenCodeModelLabel,
+  isOpenCodeGoModelSupported,
+  isOpenCodeModelSupported,
+  isOpenCodeZenModelSupported,
+  loadOpenCodeModelCatalog,
+  OPENCODE_GO_RECOMMENDED_MODEL,
+  OPENCODE_GO_MESSAGES_ONLY_MODELS,
+  OPENCODE_ZEN_RECOMMENDED_MODEL,
+  toAiProviderPresets,
+  type OpenCodeModelCatalog,
+  type OpenCodeModelCatalogCache,
+  type OpenCodeModelCatalogEntry,
+} from "./opencode-models.js"
+export {
   buildProjectAiConfigDto,
   createProjectAiRuntimeResolver,
   createProjectAnswerProvider,

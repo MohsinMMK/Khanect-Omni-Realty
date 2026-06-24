@@ -150,3 +150,25 @@ export type ProjectLlmSmokeTestResult = {
   latencyMs: number
   answerPreview: string
 }
+
+export type OpenCodeLlmPlan = "go" | "zen"
+
+export type OpenCodeModelCatalogEntry = {
+  id: string
+  label: string
+  model: string
+  baseUrl: string
+  plan: OpenCodeLlmPlan
+  supported: boolean
+  recommended: boolean
+  summary: string
+}
+
+export type OpenCodeModelCatalog = {
+  plan: OpenCodeLlmPlan
+  baseUrl: string
+  fetchedAt: string
+  source: "live" | "fallback"
+  models: OpenCodeModelCatalogEntry[]
+  detail?: string
+}

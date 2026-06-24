@@ -22,6 +22,7 @@ import { dependencyHealthRoutes, type ClamavHealthCheck } from "./routes/depende
 import { healthRoutes } from "./routes/health.js"
 import { readinessRoutes, type ReadinessRouteOptions } from "./routes/readiness.js"
 import { embeddingAdminRoutes } from "./routes/embedding-admin.js"
+import { opencodeAdminRoutes } from "./routes/opencode-admin.js"
 import { metaWebhookRoutes } from "./routes/meta-webhooks.js"
 import { platformRoutes } from "./routes/platform.js"
 import { createConfiguredAnswerProvider } from "./llm.js"
@@ -127,6 +128,9 @@ export async function buildApi(options: BuildApiOptions = {}) {
   }), { prefix: "/api/v1" })
   await app.register(embeddingAdminRoutes({
     config,
+    adminAuth,
+  }), { prefix: "/api/v1" })
+  await app.register(opencodeAdminRoutes({
     adminAuth,
   }), { prefix: "/api/v1" })
   await app.register(platformRoutes({
