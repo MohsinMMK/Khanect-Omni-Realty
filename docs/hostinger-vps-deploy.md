@@ -107,7 +107,59 @@ Embedding probe: `GET /api/v1/admin/ai/embedding` (authenticated).
 
 Same as [production-deploy.md](./production-deploy.md#rollout-order): migrate → data stores → worker → api → AI config → content → widget → Meta webhooks.
 
-## Updates
+## End-to-end automation (GitHub Actions)
+
+Push to `codex/production-website-chatbot-platform` triggers:
+
+1. **verify** — `pnpm test` + `pnpm check:compose` on GitHub
+2. **deploy** — SSH to VPS → `git pull` → `./scripts/deploy-vps.sh`
+3. **health** — optional external `curl` to `DEPLOY_HEALTH_URL`
+
+Workflow: `.github/workflows/deploy-production.yml`
+
+### One-time bootstrap (VPS)
+
+```bash
+ssh root@YOUR_VPS_IP
+git clone git@github.com:MohsinMMK/Khanect-Omni-Realty.git /opt/khanect-omni-realty
+cd /opt/khanect-omni-realty
+git checkout codex/production-website-chatbot-platform
+./scripts/vps-bootstrap.sh
+```
+
+Bootstrap creates a **read-only GitHub deploy key** on the VPS and clones the repo. Add the printed public key under **GitHub → repo → Settings → Deploy keys**.
+
+Generate a **separate key pair** for GitHub Actions → VPS SSH:
+
+```bash
+ssh-keygen -t ed25519 -f github_actions_vps -N ""
+# Public key  → VPS authorized_keys (bootstrap script or manually)
+# Private key → GitHub secret VPS_SSH_KEY
+```
+
+### GitHub secrets (repo → Settings → Secrets → Actions)
+
+| Secret | Example |
+|--------|---------|
+| `VPS_HOST` | `194.164.149.3` |
+| `VPS_USER` | `root` |
+| `VPS_SSH_KEY` | contents of `github_actions_vps` private key |
+| `VPS_DEPLOY_PATH` | `/opt/khanect-omni-realty` |
+| `DEPLOY_HEALTH_URL` | `https://yourdomain.com/api/v1/health/ready` (optional) |
+
+Optional: create a **`production` environment** in GitHub with required reviewers before deploy runs.
+
+### Day-to-day flow
+
+```text
+local changes → git commit → git push → GitHub Actions → VPS docker rebuild → live
+```
+
+`.env.production` stays **only on the VPS** — never committed. Code updates are automatic; secret changes are manual on the server.
+
+Manual redeploy: **Actions → Deploy production → Run workflow**.
+
+## Updates (manual fallback)
 
 ```bash
 git pull
