@@ -21,7 +21,7 @@ echo "Waiting for API readiness..."
 ready=false
 for _ in $(seq 1 40); do
   if docker compose -f "$compose_file" --env-file "$env_file" --profile "$profile" exec -T api \
-    node -e "fetch('http://127.0.0.1:3000/api/v1/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
+    node -e "fetch('http://127.0.0.1:3000/api/v1/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" \
     >/dev/null 2>&1; then
     ready=true
     break
