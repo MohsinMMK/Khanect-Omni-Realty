@@ -4,11 +4,16 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-echo "building bge-m3 rag-embedder image..."
-docker compose -f docker-compose.phase0.yml -f docker-compose.bge-m3.yml build rag-embedder
+export RAG_EMBEDDER_DOCKERFILE=apps/rag-embedder/Dockerfile.bge-m3
+export EMBEDDER_MODE=bge-m3
+export EMBEDDING_MODEL=BAAI/bge-m3
+export RAG_EMBEDDER_TAG=bge-m3
 
-echo "starting rag-embedder (bge-m3 profile)..."
-docker compose -f docker-compose.phase0.yml -f docker-compose.bge-m3.yml up -d rag-embedder
+echo "building bge-m3 rag-embedder image..."
+docker compose --profile dev build dev-rag-embedder
+
+echo "starting dev-rag-embedder (bge-m3)..."
+docker compose --profile dev up -d dev-rag-embedder
 
 deadline=$((SECONDS + 300))
 until [ "$SECONDS" -ge "$deadline" ]; do
@@ -19,8 +24,8 @@ until [ "$SECONDS" -ge "$deadline" ]; do
 done
 
 if ! curl -sf http://localhost:8080/health | grep -q '"mode":"bge-m3"'; then
-  echo "rag-embedder did not become healthy with bge-m3 within 300s" >&2
-  docker compose -f docker-compose.phase0.yml -f docker-compose.bge-m3.yml logs rag-embedder >&2 || true
+  echo "dev-rag-embedder did not become healthy with bge-m3 within 300s" >&2
+  docker compose --profile dev logs dev-rag-embedder >&2 || true
   exit 1
 fi
 

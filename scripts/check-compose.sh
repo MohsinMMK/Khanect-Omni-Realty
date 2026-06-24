@@ -10,10 +10,11 @@ sed \
   docker-compose.skeleton.yml |
   docker compose --env-file env.example -f - config >/tmp/khanect-compose-skeleton-config.out
 
-docker compose -f "$repo_root/docker-compose.phase0.yml" config >/tmp/khanect-compose-phase0-config.out
-docker compose -f "$repo_root/docker-compose.phase0.yml" -f "$repo_root/docker-compose.smoke.yml" config >/tmp/khanect-compose-smoke-config.out
-docker compose -f "$repo_root/docker-compose.phase0.yml" -f "$repo_root/docker-compose.bge-m3.yml" config >/tmp/khanect-compose-bge-m3-config.out
-docker compose -f "$repo_root/docker-compose.local-prod.yml" --profile local-prod config >/tmp/khanect-compose-local-prod-config.out
-docker compose -f "$repo_root/docker-compose.production.yml" --env-file "$repo_root/env.production.example" --profile production config >/tmp/khanect-compose-production-config.out
+docker compose -f "$repo_root/docker-compose.yml" --profile dev config >/tmp/khanect-compose-dev-config.out
+API_HOST_PORT=3002 REDIS_URL=redis://host.docker.internal:6379 docker compose -f "$repo_root/docker-compose.yml" --profile dev config >/tmp/khanect-compose-dev-smoke-config.out
+RAG_EMBEDDER_DOCKERFILE=apps/rag-embedder/Dockerfile.bge-m3 EMBEDDER_MODE=bge-m3 EMBEDDING_MODEL=BAAI/bge-m3 RAG_EMBEDDER_TAG=bge-m3 \
+  docker compose -f "$repo_root/docker-compose.yml" --profile dev config >/tmp/khanect-compose-dev-bge-m3-config.out
+docker compose -f "$repo_root/docker-compose.yml" --profile local-prod config >/tmp/khanect-compose-local-prod-config.out
+docker compose -f "$repo_root/docker-compose.yml" --env-file "$repo_root/env.production.example" --profile production config >/tmp/khanect-compose-production-config.out
 
 echo "compose config ok"

@@ -21,7 +21,7 @@ Other:
 - `Real Estate Web RD/`: research/design blueprint (not a mirror of implemented code): OpenAPI 3.1.0 contract, skeleton compose, `env.example`, `schema.sql`.
 - `phase0/`, `phase1/`: historical handoff notes; see each folder's `README.md`. Operational truth is `README.md` + this file.
 - `scripts/`: `check-openapi.mjs`, `check-compose.sh`.
-- `docker-compose.phase0.yml`: postgres (pgvector), redis, clamav, agno-agent, app, worker.
+- `docker-compose.yml`: single compose file with profiles `dev`, `production`, `local-prod` (postgres/pgvector, redis, clamav, agno-agent, rag-embedder, api/worker/web as needed).
 - `Dockerfile`: multi-stage Node image used by `app` and `worker` compose services.
 
 Use `pnpm` for all package operations. The repo declares `pnpm@11.8.0` (Corepack-managed via `packageManager`) and requires Node `>=24` (Node 24 LTS; Node 26 is Current but pre-LTS). TypeScript ~6, ESM. Python `>=3.12,<3.15` for agno-agent, pinned to specific tested floors (`agno==2.6.18`, `fastapi>=0.138,<1`, `uvicorn[standard]>=0.49,<1`, `pydantic>=2.13,<3`, `pytest>=9,<10`, `httpx>=0.28,<1`). Use `uv` for local Python envs (`uv venv && uv pip install -e ".[dev]"`); `uv.lock` is committed.
@@ -59,7 +59,7 @@ Run from the repository root. Docker Desktop must be running.
 ```bash
 open -a Docker
 docker info
-docker compose -f docker-compose.phase0.yml up -d postgres clamav agno-agent
+docker compose --profile dev up -d dev-postgres dev-clamav dev-agno-agent
 docker rm -f khanect-omni-realty-clamav-local >/dev/null 2>&1 || true
 docker run -d --name khanect-omni-realty-clamav-local -p 3310:3310 clamav/clamav:stable
 CLAMAV_HOST=localhost pnpm exec turbo dev --env-mode=loose

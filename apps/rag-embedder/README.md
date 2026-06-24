@@ -30,8 +30,8 @@ Set `EMBEDDER_URL=http://localhost:8080` in the API/worker environment when runn
 Phase0 compose runs the local BGE base preset by default:
 
 ```bash
-docker compose -f docker-compose.phase0.yml build rag-embedder
-docker compose -f docker-compose.phase0.yml up -d rag-embedder
+docker compose --profile dev build dev-rag-embedder
+docker compose --profile dev up -d dev-rag-embedder
 curl http://localhost:8080/health   # mode: local, dimension: 768
 ```
 

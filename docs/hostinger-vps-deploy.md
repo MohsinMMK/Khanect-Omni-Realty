@@ -15,7 +15,7 @@ The database stores vectors in dimension-specific columns (`embedding` 1024, `em
 | Local BGE small | `BAAI/bge-small-en-v1.5` | 384 | ~0.3–0.8 GB | Lowest local RAM; lower retrieval quality |
 | Local BGE-M3 | `BAAI/bge-m3` | 1024 | ~2–4 GB | Not recommended on 8 GB with postgres + api + worker |
 
-`docker-compose.production.yml` defaults to **OpenAI @ 1024**. Set `OPENAI_API_KEY` in `.env.production`. The admin UI (**AI → Embedding**) documents all modes and probes connectivity.
+`docker-compose.yml` (`--profile production`) defaults to **OpenAI @ 1024**. Set `OPENAI_API_KEY` in `.env.production`. The admin UI (**AI → Embedding**) documents all modes and probes connectivity.
 
 ## Services in production compose
 
@@ -70,7 +70,7 @@ From repo root on the VPS:
 Or manually:
 
 ```bash
-docker compose -f docker-compose.production.yml --profile production up -d --build
+docker compose --env-file .env.production --profile production up -d --build
 ```
 
 ## Phase 4 — Verify
@@ -79,7 +79,7 @@ docker compose -f docker-compose.production.yml --profile production up -d --bui
 curl -i http://localhost/
 curl -i http://localhost/api/v1/health
 curl -i http://localhost/api/v1/health/ready
-docker compose -f docker-compose.production.yml --profile production ps
+docker compose --env-file .env.production --profile production ps
 ```
 
 Admin (break-glass): pass `x-khanect-admin-api-key: <ADMIN_API_KEY>` or sign in via Better Auth.
@@ -169,7 +169,7 @@ git pull
 ## Local proof before VPS
 
 ```bash
-docker compose -f docker-compose.local-prod.yml --profile local-prod up -d --build
+docker compose --profile local-prod up -d --build
 ```
 
 Local-prod includes embedder/agno/clamav for full-stack smoke; production compose is the slim VPS profile.

@@ -1,0 +1,575 @@
+# Khanect Omni Realty — single compose file, environment via profiles.
+#
+# Dev dependencies (host-run API via turbo):
+#   docker compose --profile dev up -d dev-postgres dev-redis dev-clamav dev-agno-agent dev-rag-embedder
+#
+# Full dev in Docker:
+#   docker compose --profile dev up -d
+#
+# Dev smoke (host Redis / alternate API port):
+#   REDIS_URL=redis://host.docker.internal:6379 API_HOST_PORT=3002 docker compose --profile dev up -d dev-app dev-worker
+#
+# BGE-M3 embedder (dev):
+#   RAG_EMBEDDER_DOCKERFILE=apps/rag-embedder/Dockerfile.bge-m3 EMBEDDER_MODE=bge-m3 EMBEDDING_MODEL=BAAI/bge-m3 \
+#     docker compose --profile dev up -d --build dev-rag-embedder
+#
+# Production (VPS):
+#   docker compose --env-file .env.production --profile production up -d --build
+#
+# Local production-shaped stack:
+#   docker compose --profile local-prod up -d --build
+#
+name: khanect-omni-realty
+
+x-dev-app-environment: &dev-app-environment
+  NODE_ENV: development
+  APP_VERSION: phase0
+  APP_BASE_URL: http://localhost:${API_HOST_PORT:-3000}
+  API_BASE_URL: http://localhost:${API_HOST_PORT:-3000}/api/v1
+  API_INTERNAL_BASE_URL: http://dev-app:3000
+  VITE_API_BASE_URL: /api/v1
+  CRM_BASE_URL: http://localhost:3001
+  DATABASE_URL: postgresql://realestate:change_me@dev-postgres:5432/realestate_app
+  REDIS_URL: ${REDIS_URL:-redis://dev-redis:6379}
+  BETTER_AUTH_URL: http://localhost:${API_HOST_PORT:-3000}
+  BETTER_AUTH_SECRET: phase0_dev_only_better_auth_secret_min_32_chars
+  ENCRYPTION_KEY: phase0_dev_only_encryption_key_min_32_chars
+  CLAMAV_HOST: dev-clamav
+  CLAMAV_PORT: "3310"
+  LOG_LEVEL: info
+  AGNO_ENABLED: "true"
+  AGNO_AGENT_URL: http://dev-agno-agent:8000
+  AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
+  AGNO_MODEL: gpt-5-mini
+  AGNO_EMBEDDING_MODEL: text-embedding-3-small
+  EMBEDDER_URL: http://dev-rag-embedder:8080
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+  RAG_INDEX_SYNC: "false"
+  WORKER_HEALTH_PORT: "3001"
+
+x-production-environment: &production-environment
+  NODE_ENV: production
+  APP_VERSION: ${APP_VERSION:-production}
+  APP_BASE_URL: ${APP_BASE_URL}
+  API_BASE_URL: ${API_BASE_URL}
+  API_INTERNAL_BASE_URL: http://api:3000
+  VITE_API_BASE_URL: /api/v1
+  CRM_BASE_URL: ${CRM_BASE_URL:-${APP_BASE_URL}}
+  CORS_ORIGINS: ${CORS_ORIGINS}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-realestate}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-realestate_app}
+  REDIS_URL: redis://redis:6379
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  ADMIN_API_KEY: ${ADMIN_API_KEY}
+  PLATFORM_STORE: postgres
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  RAG_INDEX_SYNC: "false"
+  WORKER_HEALTH_PORT: "3001"
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  EMBEDDER_URL: ${EMBEDDER_URL:-}
+  AGNO_ENABLED: "false"
+  LLM_API_KEY: ${LLM_API_KEY}
+  LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+  LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+  BETTER_AUTH_ENABLED: ${BETTER_AUTH_ENABLED:-true}
+  META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
+  WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
+  WHATSAPP_BUSINESS_ACCOUNT_ID: ${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+  WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+  WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+  INSTAGRAM_MESSAGING_ENABLED: ${INSTAGRAM_MESSAGING_ENABLED:-false}
+  INSTAGRAM_BUSINESS_ACCOUNT_ID: ${INSTAGRAM_BUSINESS_ACCOUNT_ID:-}
+  INSTAGRAM_PAGE_ID: ${INSTAGRAM_PAGE_ID:-}
+  INSTAGRAM_ACCESS_TOKEN: ${INSTAGRAM_ACCESS_TOKEN:-}
+  WIDGET_RATE_LIMIT_MAX: ${WIDGET_RATE_LIMIT_MAX:-30}
+  WIDGET_RATE_LIMIT_WINDOW_MS: ${WIDGET_RATE_LIMIT_WINDOW_MS:-60000}
+
+x-local-prod-environment: &local-prod-environment
+  NODE_ENV: production
+  APP_VERSION: local-prod
+  APP_BASE_URL: http://localhost:8088
+  API_BASE_URL: http://localhost:8088/api/v1
+  API_INTERNAL_BASE_URL: http://local-api:3000
+  VITE_API_BASE_URL: /api/v1
+  CRM_BASE_URL: http://localhost:3001
+  CORS_ORIGINS: http://localhost:8088
+  DATABASE_URL: postgresql://realestate:change_me@local-postgres:5432/realestate_app
+  REDIS_URL: redis://local-redis:6379
+  BETTER_AUTH_URL: http://localhost:8088
+  BETTER_AUTH_SECRET: localprod_better_auth_secret_change_me_64_chars_minimum_value
+  ENCRYPTION_KEY: localprod_encryption_key_change_me_64_chars_minimum_value
+  ADMIN_API_KEY: localprod_admin_api_key_change_me_64_chars_minimum_value
+  PLATFORM_STORE: postgres
+  CLAMAV_HOST: local-clamav
+  CLAMAV_PORT: "3310"
+  LOG_LEVEL: info
+  AGNO_ENABLED: "true"
+  AGNO_AGENT_URL: http://local-agno-agent:8000
+  AGNO_SERVICE_TOKEN: localprod_agno_service_token_change_me_64_chars_minimum_value
+  AGNO_MODEL: gpt-5-mini
+  AGNO_EMBEDDING_MODEL: text-embedding-3-small
+  EMBEDDING_PROVIDER: local
+  EMBEDDER_URL: http://local-rag-embedder:8080
+  EMBEDDING_MODEL: BAAI/bge-small-en-v1.5
+  EMBEDDING_DIMENSION: "384"
+  RAG_INDEX_SYNC: "false"
+  WORKER_HEALTH_PORT: "3001"
+
+x-memory-api: &memory-api
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
+x-memory-worker: &memory-worker
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
+services:
+  dev-postgres:
+    image: pgvector/pgvector:pg16
+    profiles: [dev]
+    environment:
+      POSTGRES_DB: realestate_app
+      POSTGRES_USER: realestate
+      POSTGRES_PASSWORD: change_me
+    ports:
+      - "5432:5432"
+    volumes:
+      - dev-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dev-redis:
+    image: redis:7-alpine
+    profiles: [dev]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dev-clamav:
+    image: clamav/clamav:stable
+    profiles: [dev]
+
+  dev-agno-agent:
+    build:
+      context: .
+      dockerfile: apps/agno-agent/Dockerfile
+    image: khanect-omni-realty-agno-agent:dev
+    profiles: [dev]
+    environment:
+      AGNO_DATABASE_URL: postgresql://realestate:change_me@dev-postgres:5432/realestate_app
+      AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
+      AGNO_MODEL: gpt-5-mini
+      AGNO_EMBEDDING_MODEL: text-embedding-3-small
+      AGNO_USE_LIVE_AGENT: "1"
+      DATABASE_URL: postgresql://realestate:change_me@dev-postgres:5432/realestate_app
+    expose:
+      - "8000"
+    depends_on:
+      dev-postgres:
+        condition: service_healthy
+
+  dev-rag-embedder:
+    build:
+      context: .
+      dockerfile: ${RAG_EMBEDDER_DOCKERFILE:-apps/rag-embedder/Dockerfile}
+    image: khanect-omni-realty-rag-embedder:${RAG_EMBEDDER_TAG:-dev}
+    profiles: [dev]
+    environment:
+      EMBEDDER_MODE: ${EMBEDDER_MODE:-local}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+      HF_HOME: /cache/huggingface
+    ports:
+      - "8080:8080"
+    volumes:
+      - dev-huggingface-cache:/cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  dev-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:dev
+    profiles: [dev]
+    command: ["node", "apps/api/dist/index.js"]
+    environment: *dev-app-environment
+    ports:
+      - "${API_HOST_PORT:-3000}:3000"
+    depends_on:
+      dev-postgres:
+        condition: service_healthy
+      dev-redis:
+        condition: service_healthy
+      dev-rag-embedder:
+        condition: service_healthy
+      dev-clamav:
+        condition: service_started
+      dev-agno-agent:
+        condition: service_started
+    volumes:
+      - dev-uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  dev-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:dev
+    profiles: [dev]
+    command: ["node", "apps/worker/dist/index.js"]
+    environment: *dev-app-environment
+    depends_on:
+      dev-postgres:
+        condition: service_healthy
+      dev-redis:
+        condition: service_healthy
+      dev-rag-embedder:
+        condition: service_healthy
+      dev-clamav:
+        condition: service_started
+    volumes:
+      - dev-uploads-data:/app/uploads
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: [production]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-realestate_app}
+      POSTGRES_USER: ${POSTGRES_USER:-realestate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - production-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: [production]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:production
+    profiles: [production]
+    command: ["pnpm", "--filter", "@workspace/db", "db:migrate"]
+    environment: *production-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:production
+    profiles: [production]
+    command: ["node", "apps/api/dist/index.js"]
+    environment: *production-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - production-uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    <<: *memory-api
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:production
+    profiles: [production]
+    command: ["node", "apps/worker/dist/index.js"]
+    environment: *production-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - production-uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    <<: *memory-worker
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api/v1
+    image: khanect-omni-realty-web:production
+    profiles: [production]
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    restart: unless-stopped
+
+  local-postgres:
+    image: pgvector/pgvector:pg16
+    profiles: [local-prod]
+    environment:
+      POSTGRES_DB: realestate_app
+      POSTGRES_USER: realestate
+      POSTGRES_PASSWORD: change_me
+    ports:
+      - "55432:5432"
+    volumes:
+      - local-prod-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  local-redis:
+    image: redis:7-alpine
+    profiles: [local-prod]
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  local-clamav:
+    image: clamav/clamav:stable
+    profiles: [local-prod]
+    expose:
+      - "3310"
+
+  local-rag-embedder:
+    build:
+      context: .
+      dockerfile: apps/rag-embedder/Dockerfile
+    image: khanect-omni-realty-rag-embedder:local-prod
+    profiles: [local-prod]
+    environment:
+      EMBEDDER_MODE: local
+      EMBEDDING_MODEL: BAAI/bge-small-en-v1.5
+      HF_HOME: /cache/huggingface
+    ports:
+      - "8081:8080"
+    volumes:
+      - local-prod-huggingface-cache:/cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  local-agno-agent:
+    build:
+      context: .
+      dockerfile: apps/agno-agent/Dockerfile
+    image: khanect-omni-realty-agno-agent:local-prod
+    profiles: [local-prod]
+    environment:
+      AGNO_DATABASE_URL: postgresql://realestate:change_me@local-postgres:5432/realestate_app
+      AGNO_SERVICE_TOKEN: localprod_agno_service_token_change_me_64_chars_minimum_value
+      AGNO_MODEL: gpt-5-mini
+      AGNO_EMBEDDING_MODEL: text-embedding-3-small
+      AGNO_USE_LIVE_AGENT: "1"
+      DATABASE_URL: postgresql://realestate:change_me@local-postgres:5432/realestate_app
+    ports:
+      - "8001:8000"
+    depends_on:
+      local-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  local-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:local-prod
+    profiles: [local-prod]
+    command: ["pnpm", "--filter", "@workspace/db", "db:migrate"]
+    environment: *local-prod-environment
+    depends_on:
+      local-postgres:
+        condition: service_healthy
+    restart: "no"
+
+  local-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:local-prod
+    profiles: [local-prod]
+    command: ["node", "apps/api/dist/index.js"]
+    environment: *local-prod-environment
+    ports:
+      - "3002:3000"
+    depends_on:
+      local-postgres:
+        condition: service_healthy
+      local-redis:
+        condition: service_healthy
+      local-rag-embedder:
+        condition: service_healthy
+      local-agno-agent:
+        condition: service_healthy
+      local-migrate:
+        condition: service_completed_successfully
+      local-clamav:
+        condition: service_started
+    volumes:
+      - local-prod-uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  local-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: khanect-omni-realty-app:local-prod
+    profiles: [local-prod]
+    command: ["node", "apps/worker/dist/index.js"]
+    environment: *local-prod-environment
+    ports:
+      - "3003:3001"
+    depends_on:
+      local-postgres:
+        condition: service_healthy
+      local-redis:
+        condition: service_healthy
+      local-rag-embedder:
+        condition: service_healthy
+      local-migrate:
+        condition: service_completed_successfully
+      local-clamav:
+        condition: service_started
+    volumes:
+      - local-prod-uploads-data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  local-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api/v1
+    image: khanect-omni-realty-web:local-prod
+    profiles: [local-prod]
+    ports:
+      - "8088:80"
+    depends_on:
+      local-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  dev-postgres-data:
+  dev-uploads-data:
+  dev-huggingface-cache:
+  production-postgres-data:
+  production-uploads-data:
+  local-prod-postgres-data:
+  local-prod-uploads-data:
+  local-prod-huggingface-cache:

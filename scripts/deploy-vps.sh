@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
-compose_file="docker-compose.production.yml"
+compose_file="docker-compose.yml"
 profile="production"
 env_file=".env.production"
 

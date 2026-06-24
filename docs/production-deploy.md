@@ -86,15 +86,20 @@ Activate the connector in **Connect** (`active` status) for the target chatbot. 
 **Default (stub embeddings, fast CI/dev):**
 
 ```bash
-docker compose -f docker-compose.phase0.yml up -d
+docker compose --profile dev up -d
 ```
 
-**Smoke override** (host Redis / alternate API port): `docker-compose.smoke.yml`
+**Smoke override** (host Redis / alternate API port):
+
+```bash
+REDIS_URL=redis://host.docker.internal:6379 API_HOST_PORT=3002 docker compose --profile dev up -d dev-app dev-worker
+```
 
 **BGE-M3 embeddings** (CPU, downloads model on first start):
 
 ```bash
-docker compose -f docker-compose.phase0.yml -f docker-compose.bge-m3.yml up -d rag-embedder
+RAG_EMBEDDER_DOCKERFILE=apps/rag-embedder/Dockerfile.bge-m3 EMBEDDER_MODE=bge-m3 EMBEDDING_MODEL=BAAI/bge-m3 RAG_EMBEDDER_TAG=bge-m3 \
+  docker compose --profile dev up -d --build dev-rag-embedder
 ```
 
 ## Verification gates
