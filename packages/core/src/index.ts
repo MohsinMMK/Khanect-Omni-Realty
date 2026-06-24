@@ -41,6 +41,7 @@ export {
   isSupportedLocalEmbeddingModel,
   localEmbeddingModelPresets,
   probeOpenAiEmbeddings,
+  requireRealEmbeddingProvider,
   resolveEmbeddingDimension,
   type AppAiEmbeddingConfig,
   type EmbeddingProvider,

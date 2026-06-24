@@ -75,6 +75,18 @@ describe("loadConfig", () => {
     ).toThrow(/OPENAI_API_KEY/)
   })
 
+  it("rejects stub embeddings in production", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "production_better_auth_secret_that_is_long_enough",
+        ENCRYPTION_KEY: "production_encryption_key_that_is_long_enough",
+        ADMIN_API_KEY: "production_admin_api_key_that_is_long_enough",
+        EMBEDDING_PROVIDER: "stub",
+      }),
+    ).toThrow(/EMBEDDING_PROVIDER/)
+  })
+
   it("parses Agno runtime configuration", () => {
     const config = loadConfig({
       AGNO_ENABLED: "true",
@@ -139,6 +151,8 @@ describe("loadConfig", () => {
       BETTER_AUTH_SECRET: "production_better_auth_secret_that_is_long_enough",
       ENCRYPTION_KEY: "production_encryption_key_that_is_long_enough",
       ADMIN_API_KEY: "production_admin_api_key_that_is_long_enough",
+      EMBEDDING_PROVIDER: "local",
+      EMBEDDER_URL: "http://rag-embedder:8080",
     })
 
     expect(config.auth.adminApiKey).toBe("production_admin_api_key_that_is_long_enough")

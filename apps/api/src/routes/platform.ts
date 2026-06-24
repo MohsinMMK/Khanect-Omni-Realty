@@ -248,6 +248,30 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
       }>
 
+      if (body.embedding?.provider === "stub") {
+        return reply.status(400).send({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Project embedding provider cannot be stub. Use the enforced local BGE runtime.",
+          },
+        })
+      }
+
+      if (body.llm?.source === "project") {
+        const current = await options.store.getProjectAiSecrets(projectId)
+        const hasApiKey = Boolean(body.llm.apiKey?.trim() || current?.llmApiKey?.trim())
+        const hasBaseUrl = Boolean((body.llm.baseUrl ?? current?.llmBaseUrl)?.trim())
+        const hasModel = Boolean((body.llm.model ?? current?.llmModel)?.trim())
+        if (!hasApiKey || !hasBaseUrl || !hasModel) {
+          return reply.status(400).send({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Project LLM source requires an API key, base URL, and model before chatbot creation.",
+            },
+          })
+        }
+      }
+
       let updated
       try {
         updated = await options.store.updateProjectAiConfig(projectId, body)
@@ -413,6 +437,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Content not found" } })
 
       if (options.ragIndexEnqueuer) {
+        let indexingError: string | undefined
         try {
           await options.ragIndexEnqueuer({
             chatbotId,
@@ -430,6 +455,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
             },
             "failed to enqueue rag.index job",
           )
+          indexingError = error instanceof Error ? error.message : String(error)
         }
 
         const refreshedSource = (await options.store.listKnowledge(chatbotId)).find((item) => item.contentItemId === contentId)
@@ -438,7 +464,8 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
           source: refreshedSource ?? result.source,
           chunkCount: refreshedSource?.chunkCount ?? result.chunkCount,
           documentId: result.documentId,
-          indexing: refreshedSource?.status !== "indexed",
+          indexing: indexingError ? false : refreshedSource?.status !== "indexed",
+          ...(indexingError ? { indexingError } : {}),
         }
       }
 

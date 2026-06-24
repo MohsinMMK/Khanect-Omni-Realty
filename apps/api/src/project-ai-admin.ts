@@ -102,7 +102,7 @@ export async function runProjectLlmSmokeTest(
   const started = Date.now()
   const result = await provider({
     message: sample,
-    sources: [{ title: "Smoke test", excerpt: "This is an approved smoke-test source excerpt." }],
+    sources: [{ title: "Smoke test", excerpt: "The approved smoke-test answer is OK." }],
   })
   const latencyMs = Date.now() - started
 

@@ -59,15 +59,16 @@ Run from the repository root. Docker Desktop must be running.
 ```bash
 open -a Docker
 docker info
-docker compose --profile dev up -d dev-postgres dev-clamav dev-agno-agent
+docker compose --profile dev up -d dev-postgres dev-clamav dev-agno-agent dev-rag-embedder
 docker rm -f khanect-omni-realty-clamav-local >/dev/null 2>&1 || true
 docker run -d --name khanect-omni-realty-clamav-local -p 3310:3310 clamav/clamav:stable
-CLAMAV_HOST=localhost pnpm exec turbo dev --env-mode=loose
+CLAMAV_HOST=localhost EMBEDDING_PROVIDER=local EMBEDDER_URL=http://localhost:8080 EMBEDDING_MODEL=BAAI/bge-base-en-v1.5 EMBEDDING_DIMENSION=768 pnpm exec turbo dev --env-mode=loose
 ```
 
 Do not start compose Redis if local `6379` is already occupied. The extra
-ClamAV container publishes `3310` for the host-run API; `--env-mode=loose`
-lets Turbo pass `CLAMAV_HOST=localhost` through to `apps/api`.
+ClamAV container publishes `3310` for the host-run API. The `dev-rag-embedder`
+container publishes `8080` for host-run API/worker indexing; `--env-mode=loose`
+lets Turbo pass the host embedding and ClamAV env vars through to `apps/api`.
 
 Verify:
 
@@ -75,14 +76,15 @@ Verify:
 curl -i http://localhost:5173/
 curl -i http://localhost:3000/api/v1/health
 curl -i http://localhost:3000/api/v1/health/clamav
+curl -i http://localhost:8080/health
 ```
 
-Default dev ports: web `5173`, api `3000`, agno-agent `8000`, postgres `5432`, redis `6379`, clamav `3310`.
+Default dev ports: web `5173`, api `3000`, agno-agent `8000`, embedder `8080`, postgres `5432`, redis `6379`, clamav `3310`.
 
 ## Architecture Notes
 
 ### API answer providers
-`buildApi` (`apps/api/src/app.ts`) selects the platform answer provider in priority order: Agno agent (`createAgnoAnswerProvider`, when `AGNO_ENABLED`) → configured OpenAI-compatible LLM (`createConfiguredAnswerProvider`, when `LLM_API_KEY`) → deterministic grounded fallback composed from approved source excerpts. Phase 1A uses `stub/hash-v1` 1024-dim embeddings (`embedTextStubHashV1`) until a real embedding model is wired.
+`buildApi` (`apps/api/src/app.ts`) selects the platform answer provider in priority order: Agno agent (`createAgnoAnswerProvider`, when `AGNO_ENABLED`) → configured OpenAI-compatible LLM (`createConfiguredAnswerProvider`, when `LLM_API_KEY`) → deterministic grounded fallback composed from approved source excerpts. Normal platform indexing requires a real embedding runtime (`EMBEDDING_PROVIDER=local` + healthy `EMBEDDER_URL`). Phase 1A and isolated tests may still use `stub/hash-v1` 1024-dim embeddings (`embedTextStubHashV1`) explicitly.
 
 ### Auth model
 Admin routes use a dev stub (`allowDevAdminStub` when `NODE_ENV !== production`). In production, admin routes require `x-khanect-admin-api-key` header or `Authorization: Bearer <ADMIN_API_KEY>`. Widget endpoints (`/widget/:publicKey/*`) are public but origin-gated against `chatbot_deployment.allowed_domains` with per-widget rate limiting.

@@ -36,7 +36,6 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@workspace/ui/components/pagination"
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@workspace/ui/components/resizable"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Spinner } from "@workspace/ui/components/spinner"
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@workspace/ui/components/empty"
@@ -831,10 +830,8 @@ export function ContentView({
             <DrawerDescription className="sr-only">Edit chatbot setup, manage content, and test responses.</DrawerDescription>
           </DrawerHeader>
           {detailChatbot && (
-            <div className="min-h-0 flex-1 px-4 pb-4">
-            <ResizablePanelGroup className="min-h-[28rem] rounded-2xl border border-border/60" orientation="horizontal">
-              <ResizablePanel defaultSize={58} minSize={35}>
-              <ScrollArea className="h-full pr-2">
+            <div className="grid min-h-0 flex-1 gap-4 px-4 pb-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.72fr)]">
+              <ScrollArea className="min-h-0 pr-2">
               <div className="flex flex-col gap-4 p-1">
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
                   <div className="font-heading text-base font-medium">Chatbot setup</div>
@@ -934,10 +931,7 @@ export function ContentView({
                 </div>
               </div>
               </ScrollArea>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={42} minSize={28}>
-              <ScrollArea className="h-full pr-2">
+              <ScrollArea className="min-h-0 pr-2">
               <div className="flex flex-col gap-4 p-1">
                 <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/60 p-4">
                   <div className="font-heading text-base font-medium">Test chatbot</div>
@@ -981,8 +975,6 @@ export function ContentView({
                 </div>
               </div>
               </ScrollArea>
-              </ResizablePanel>
-            </ResizablePanelGroup>
             </div>
           )}
           {detailChatbot && (

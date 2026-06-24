@@ -152,8 +152,8 @@ export interface Phase1aStore {
 }
 
 export function serializePgVector(vector: readonly number[]): string {
-  if (vector.length !== STUB_EMBEDDING_DIMENSION) {
-    throw new Error(`stub/hash-v1 embedding must have ${STUB_EMBEDDING_DIMENSION} dimensions`)
+  if (vector.length === 0 || vector.some((value) => !Number.isFinite(value))) {
+    throw new Error("embedding vector must contain finite numeric dimensions")
   }
   return `[${vector.join(",")}]`
 }

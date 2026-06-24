@@ -3,6 +3,7 @@ import {
   createProjectAiRuntimeResolver,
   createRedisConnectionOptions,
   isPlatformRagIndexJob,
+  requireRealEmbeddingProvider,
   ragIndexQueueName,
   type RagIndexJobData,
 } from "@workspace/core"
@@ -45,12 +46,13 @@ export function createRagIndexProcessor(
       const embed = chatbot
         ? await projectAiResolver.resolveEmbeddingProvider(chatbot.projectId)
         : await projectAiResolver.resolveEmbeddingProvider("missing-project")
+      const realEmbed = config.nodeEnv === "test" ? embed : requireRealEmbeddingProvider(embed, "Platform RAG indexing")
       const result = await platformStore.indexPlatformContent({
         chatbotId: job.data.chatbotId,
         contentItemId: job.data.contentItemId,
         sourceVersionId: job.data.contentVersionId,
         documentId: job.data.documentId,
-        embed,
+        embed: realEmbed,
       })
       logger.info("platform rag index job completed", { jobId: job.id, ...result })
       return { status: "indexed", scope: "platform", ...result }

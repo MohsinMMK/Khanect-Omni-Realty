@@ -37,6 +37,8 @@ describe("Phase 1A admin RAG loop", () => {
         BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
         ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
         ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
       }),
     })
 
@@ -57,6 +59,8 @@ describe("Phase 1A admin RAG loop", () => {
         BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
         ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
         ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
       }),
     })
 

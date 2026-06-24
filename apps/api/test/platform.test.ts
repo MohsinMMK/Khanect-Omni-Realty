@@ -22,6 +22,8 @@ describe("Production website chatbot platform", () => {
         BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
         ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
         ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
       }),
     })
 
@@ -51,6 +53,8 @@ describe("Production website chatbot platform", () => {
         ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
         ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
         BETTER_AUTH_ENABLED: "false",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
       }),
     })
 
@@ -130,6 +134,7 @@ describe("Production website chatbot platform", () => {
         llm: {
           source: "project",
           apiKey: "sk-project-llm-key-aaaa",
+          baseUrl: "https://api.openai.com/v1",
           model: "gpt-4.1-mini",
         },
         embedding: {
@@ -145,6 +150,55 @@ describe("Production website chatbot platform", () => {
       embedding: { source: "project", configuredProvider: "openai", apiKeyConfigured: true },
     })
     expect(updated.json().config.llm.apiKeyMasked).not.toBe(updated.json().config.embedding.apiKeyMasked)
+
+    await app.close()
+  })
+
+  it("publishes content but marks RAG failed when normal app indexing resolves to stub embeddings", async () => {
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: createInMemoryProductionChatbotStore(),
+      config: loadConfig({
+        NODE_ENV: "development",
+        PLATFORM_STORE: "memory",
+        EMBEDDING_PROVIDER: "stub",
+      }),
+    })
+
+    const project = (await app.inject({
+      method: "POST",
+      url: "/api/v1/admin/projects",
+      payload: { name: "Stub Guard Realty", domain: "stub-guard.example" },
+    })).json().project
+    const chatbot = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/projects/${project.id}/chatbots`,
+      payload: { name: "Website assistant", capabilities: { faq: true } },
+    })).json().chatbot
+    const content = (await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content`,
+      payload: {
+        title: "Stub guard policy",
+        body: "Stub guard policy should not be silently indexed in app workflows.",
+      },
+    })).json().item
+
+    const publishResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/content/${content.id}/publish`,
+    })
+
+    expect(publishResponse.statusCode).toBe(200)
+    expect(publishResponse.json()).toMatchObject({
+      indexing: false,
+      indexingError: expect.stringContaining("Real embedding provider required"),
+      source: {
+        status: "failed",
+        chunkCount: 0,
+      },
+    })
 
     await app.close()
   })
@@ -935,6 +989,7 @@ describe("Production website chatbot platform", () => {
       { status: 200, headers: { "content-type": "application/json" } },
     )) as typeof fetch
     const config = loadConfig({
+      NODE_ENV: "test",
       AGNO_ENABLED: "true",
       AGNO_AGENT_URL: "http://agno-runtime.test",
       AGNO_SERVICE_TOKEN: "dev-agno-service-token",
@@ -1009,6 +1064,7 @@ describe("Production website chatbot platform", () => {
       return new Response("unexpected fetch", { status: 500 })
     }) as typeof fetch
     const config = loadConfig({
+      NODE_ENV: "test",
       AGNO_ENABLED: "true",
       AGNO_AGENT_URL: "http://agno-runtime.test",
       AGNO_SERVICE_TOKEN: "dev-agno-service-token",
@@ -1086,6 +1142,7 @@ describe("Production website chatbot platform", () => {
       return new Response("unexpected fetch", { status: 500 })
     }) as typeof fetch
     const config = loadConfig({
+      NODE_ENV: "test",
       AGNO_ENABLED: "true",
       AGNO_AGENT_URL: "http://agno-runtime.test",
       AGNO_SERVICE_TOKEN: "dev-agno-service-token",
@@ -1180,6 +1237,7 @@ describe("Production website chatbot platform", () => {
       return new Response("unexpected fetch", { status: 500 })
     }) as typeof fetch
     const config = loadConfig({
+      NODE_ENV: "test",
       AGNO_ENABLED: "true",
       AGNO_AGENT_URL: "http://agno-runtime.test",
       AGNO_SERVICE_TOKEN: "dev-agno-service-token",
@@ -1247,6 +1305,7 @@ describe("Production website chatbot platform", () => {
       { status: 200, headers: { "content-type": "application/json" } },
     )) as typeof fetch
     const config = loadConfig({
+      NODE_ENV: "test",
       AGNO_ENABLED: "true",
       AGNO_AGENT_URL: "http://agno-runtime.test",
       AGNO_SERVICE_TOKEN: "dev-agno-service-token",

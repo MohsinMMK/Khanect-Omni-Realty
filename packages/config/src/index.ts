@@ -316,6 +316,10 @@ function enforceProductionConfig(parsed: z.output<typeof envSchema>) {
     requirePresent(resolveOpenAiApiKey(parsed), "OPENAI_API_KEY", issues)
   }
 
+  if (resolveEmbeddingProvider(parsed) === "stub") {
+    issues.push("EMBEDDING_PROVIDER=stub is not allowed in production")
+  }
+
   if (resolveEmbeddingProvider(parsed) === "local") {
     requirePresent(parsed.EMBEDDER_URL, "EMBEDDER_URL", issues)
   }

@@ -42,6 +42,7 @@ x-dev-app-environment: &dev-app-environment
   AGNO_SERVICE_TOKEN: phase0_dev_only_agno_service_token
   AGNO_MODEL: gpt-5-mini
   AGNO_EMBEDDING_MODEL: text-embedding-3-small
+  EMBEDDING_PROVIDER: local
   EMBEDDER_URL: http://dev-rag-embedder:8080
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
   EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
@@ -67,12 +68,12 @@ x-production-environment: &production-environment
   LOG_LEVEL: ${LOG_LEVEL:-info}
   RAG_INDEX_SYNC: "false"
   WORKER_HEALTH_PORT: "3001"
-  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
-  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
-  EMBEDDER_URL: ${EMBEDDER_URL:-}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+  EMBEDDER_URL: ${EMBEDDER_URL:-http://rag-embedder:8080}
   AGNO_ENABLED: "false"
   LLM_API_KEY: ${LLM_API_KEY}
   LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
@@ -312,6 +313,26 @@ services:
         condition: service_healthy
     restart: "no"
 
+  rag-embedder:
+    build:
+      context: .
+      dockerfile: apps/rag-embedder/Dockerfile
+    image: khanect-omni-realty-rag-embedder:production
+    profiles: [production]
+    environment:
+      EMBEDDER_MODE: local
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}
+      HF_HOME: /cache/huggingface
+    volumes:
+      - production-huggingface-cache:/cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
   api:
     build:
       context: .
@@ -324,6 +345,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rag-embedder:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -350,6 +373,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rag-embedder:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -570,6 +595,7 @@ volumes:
   dev-huggingface-cache:
   production-postgres-data:
   production-uploads-data:
+  production-huggingface-cache:
   local-prod-postgres-data:
   local-prod-uploads-data:
   local-prod-huggingface-cache:

@@ -4,7 +4,7 @@ Multi-tenant real-estate chatbot platform: an admin control room to author appro
 
 pnpm + Turbo monorepo. TypeScript Node services, a Vite React admin app, a Python agent runtime, Postgres + pgvector, Redis, and ClamAV.
 
-> Status: Phase 0 / 1A. Admin auth is a dev stub (`allowDevAdminStub`) outside production; production requires `ADMIN_API_KEY`. Embeddings default to a deterministic `stub/hash-v1` 1024-dim vector until a real embedding model is wired.
+> Status: Phase 0 / 1A. Admin auth is a dev stub (`allowDevAdminStub`) outside production; production requires `ADMIN_API_KEY`. Normal admin indexing uses the self-hosted `rag-embedder` BGE runtime plus Postgres/pgvector; `stub/hash-v1` is reserved for unit tests and isolated fixtures.
 >
 > Dependencies target latest production-ready floors (pnpm 11, Node 24 LTS, Fastify 5, Vite 8, Tailwind v4, React 19, Drizzle 0.45, BullMQ 5, agno 2.6.18, FastAPI 0.138, pytest 9). Workspace `package.json` files use `^` ranges; `pnpm-lock.yaml` and `uv.lock` pin resolved versions. See `AGENTS.md` for the tech stack and `pnpm-workspace.yaml` `allowBuilds` for native build approvals.
 
@@ -77,14 +77,14 @@ pnpm install
 # Start backing services (Docker Desktop must be running)
 open -a Docker
 docker info
-docker compose --profile dev up -d dev-postgres dev-clamav dev-agno-agent
+docker compose --profile dev up -d dev-postgres dev-clamav dev-agno-agent dev-rag-embedder
 
 # Host-run API needs ClamAV on localhost:3310 (compose clamav has no published port)
 docker rm -f khanect-omni-realty-clamav-local >/dev/null 2>&1 || true
 docker run -d --name khanect-omni-realty-clamav-local -p 3310:3310 clamav/clamav:stable
 
 # Dev (web + api + worker via Turbo)
-CLAMAV_HOST=localhost pnpm exec turbo dev --env-mode=loose
+CLAMAV_HOST=localhost EMBEDDING_PROVIDER=local EMBEDDER_URL=http://localhost:8080 EMBEDDING_MODEL=BAAI/bge-base-en-v1.5 EMBEDDING_DIMENSION=768 pnpm exec turbo dev --env-mode=loose
 ```
 
 Do not start compose Redis if local `6379` is already occupied.
@@ -97,7 +97,7 @@ curl -i http://localhost:3000/api/v1/health
 curl -i http://localhost:3000/api/v1/health/clamav
 ```
 
-Default dev ports: web `5173`, api `3000`, agno-agent `8000`, postgres `5432`, redis `6379`, clamav `3310`.
+Default dev ports: web `5173`, api `3000`, agno-agent `8000`, embedder `8080`, postgres `5432`, redis `6379`, clamav `3310`.
 
 ## Docker Desktop local-prod proof
 

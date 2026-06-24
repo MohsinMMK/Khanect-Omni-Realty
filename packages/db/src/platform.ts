@@ -724,8 +724,33 @@ export function createInMemoryProductionChatbotStore(options: ProductionChatbotS
       if (!pending || pending.chatbotId !== input.chatbotId || pending.contentItemId !== input.contentItemId) return null
 
       const timestamp = now()
-      const sourceChunks = chunkContent(pending.title, pending.body)
-      const embeddings = await input.embed.embedTexts(sourceChunks.map((chunk) => chunk.content))
+      let sourceChunks: ReturnType<typeof chunkContent>
+      let embeddings: number[][]
+      try {
+        sourceChunks = chunkContent(pending.title, pending.body)
+        embeddings = await input.embed.embedTexts(sourceChunks.map((chunk) => chunk.content))
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const source = knowledgeSources.get(pending.knowledgeSourceId)
+        if (source) {
+          knowledgeSources.set(source.id, {
+            ...source,
+            status: "failed",
+            chunkCount: 0,
+          })
+        }
+        const existingChatbot = chatbots.get(pending.chatbotId)
+        if (existingChatbot) {
+          chatbots.set(pending.chatbotId, {
+            ...existingChatbot,
+            runtimeStatus: "error",
+            lastSyncError: message,
+            updatedAt: timestamp,
+          })
+        }
+        pendingIndexes.delete(input.documentId)
+        throw error instanceof Error ? error : new Error(message)
+      }
 
       for (const [chunkId, chunk] of chunks) {
         if (chunk.sourceVersionId === pending.sourceVersionId) chunks.delete(chunkId)

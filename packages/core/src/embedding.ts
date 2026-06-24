@@ -65,6 +65,21 @@ export function createStubEmbeddingProvider(): EmbeddingProvider {
   }
 }
 
+export function requireRealEmbeddingProvider(provider: EmbeddingProvider, context = "RAG indexing"): EmbeddingProvider {
+  if (provider.mode !== "stub") return provider
+
+  return {
+    model: provider.model,
+    dimension: provider.dimension,
+    mode: provider.mode,
+    async embedTexts() {
+      throw new Error(
+        `${context}: Real embedding provider required. Configure EMBEDDING_PROVIDER=local with a healthy EMBEDDER_URL; stub/hash-v1 is only allowed in tests.`,
+      )
+    },
+  }
+}
+
 export interface HttpEmbeddingProviderOptions {
   baseUrl: string
   model?: string

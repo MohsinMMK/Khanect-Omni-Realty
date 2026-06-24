@@ -30,6 +30,14 @@
       "import": "./dist/document-upload.js",
       "default": "./dist/document-upload.js"
     },
+    "./ai-provider-catalog": {
+      "types": "./dist/ai-provider-catalog.d.ts",
+      "browser": "./dist/ai-provider-catalog.js",
+      "development": "./dist/ai-provider-catalog.js",
+      "module": "./dist/ai-provider-catalog.js",
+      "import": "./dist/ai-provider-catalog.js",
+      "default": "./dist/ai-provider-catalog.js"
+    },
     "./embedding-catalog": {
       "types": "./dist/embedding-catalog.d.ts",
       "browser": "./dist/embedding-catalog.js",

@@ -50,24 +50,32 @@ import {
 } from "@workspace/ui/components/empty"
 import { Checkbox } from "@workspace/ui/components/checkbox"
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@workspace/ui/components/hover-card"
 import { Input } from "@workspace/ui/components/input"
 import { Separator } from "@workspace/ui/components/separator"
 import { Textarea } from "@workspace/ui/components/textarea"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { recommendedOpencodeLlmPreset } from "@workspace/core/ai-provider-catalog"
 import {
   Archive,
   ArchiveRestore,
   Building2,
+  CircleHelp,
   FilePlus2,
   KeyRound,
   MoreHorizontal,
   Plus,
   SendHorizontal,
+  Server,
   Trash2,
   Upload,
 } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { api, getErrorMessage } from "@/lib/api"
 import { capabilityOptions, capabilityPayload } from "@/lib/capabilities"
@@ -80,6 +88,7 @@ import type {
   Chatbot,
   ChatAnswer,
   ContentItem,
+  EmbeddingAdminStatus,
   NewBotStepKey,
   Project,
   ProjectAiKeySummary,
@@ -184,7 +193,7 @@ export function ProjectsView(props: {
         )}
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {props.projects.length === 0 && (
-            <Empty className="min-h-96 border bg-muted/20 md:col-span-2 xl:col-span-3">
+            <Empty className="min-h-[calc(100vh-14rem)] border-0 bg-transparent p-0 md:col-span-2 xl:col-span-3">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <Building2 aria-hidden="true" />
@@ -458,7 +467,48 @@ function CreateWorkspaceButton({
     "Answer FAQs, qualify leads, and prepare bookings"
   )
   const [capabilities, setCapabilities] = useState(["faq", "leadCapture"])
+  const [llmApiKey, setLlmApiKey] = useState("")
+  const [llmBaseUrl, setLlmBaseUrl] = useState(
+    recommendedOpencodeLlmPreset.baseUrl
+  )
+  const [llmModel, setLlmModel] = useState(recommendedOpencodeLlmPreset.model)
+  const [embeddingStatus, setEmbeddingStatus] =
+    useState<EmbeddingAdminStatus | null>(null)
+  const [embeddingLoading, setEmbeddingLoading] = useState(false)
   const [error, setError] = useState("")
+  const embeddingReady =
+    embeddingStatus?.provider === "local" &&
+    embeddingStatus.configured &&
+    embeddingStatus.status === "ok" &&
+    embeddingStatus.model !== "stub/hash-v1" &&
+    embeddingStatus.probe?.ok !== false
+
+  useEffect(() => {
+    if (!open) return
+
+    let cancelled = false
+    async function loadEmbeddingRuntime() {
+      setEmbeddingLoading(true)
+      setError("")
+      try {
+        const response =
+          await api<EmbeddingAdminStatus>("/admin/ai/embedding")
+        if (!cancelled) setEmbeddingStatus(response)
+      } catch (apiError) {
+        if (!cancelled) {
+          setEmbeddingStatus(null)
+          setError(getErrorMessage(apiError))
+        }
+      } finally {
+        if (!cancelled) setEmbeddingLoading(false)
+      }
+    }
+
+    void loadEmbeddingRuntime()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   async function createWorkspace() {
     setSaving(true)
@@ -469,6 +519,21 @@ function CreateWorkspaceButton({
         {
           method: "POST",
           body: { name: projectName.trim(), domain: domain.trim() || null },
+        }
+      )
+      await api<{ config: unknown }>(
+        `/admin/projects/${projectResponse.project.id}/ai-config`,
+        {
+          method: "PATCH",
+          body: {
+            llm: {
+              source: "project",
+              apiKey: llmApiKey.trim(),
+              baseUrl: llmBaseUrl.trim(),
+              model: llmModel.trim(),
+            },
+            embedding: { source: "platform" },
+          },
         }
       )
       const chatbotResponse = await api<{ chatbot: Chatbot }>(
@@ -482,13 +547,22 @@ function CreateWorkspaceButton({
           },
         }
       )
-      onCreated(projectResponse.project, chatbotResponse.chatbot)
+      onCreated(
+        {
+          ...projectResponse.project,
+          aiKeys: { llmSource: "project", embeddingSource: "platform" },
+        },
+        chatbotResponse.chatbot
+      )
       setOpen(false)
       setProjectName("")
       setDomain("")
       setChatbotName("Website assistant")
       setPurpose("Answer FAQs, qualify leads, and prepare bookings")
       setCapabilities(["faq", "leadCapture"])
+      setLlmApiKey("")
+      setLlmBaseUrl(recommendedOpencodeLlmPreset.baseUrl)
+      setLlmModel(recommendedOpencodeLlmPreset.model)
     } catch (apiError) {
       setError(getErrorMessage(apiError))
     } finally {
@@ -503,7 +577,7 @@ function CreateWorkspaceButton({
         New project
       </Button>
       <Drawer direction="right" open={open} onOpenChange={setOpen}>
-        <DrawerContent>
+        <DrawerContent className="data-[vaul-drawer-direction=right]:w-[min(620px,100vw)] data-[vaul-drawer-direction=right]:sm:max-w-none">
           <DrawerHeader>
             <DrawerTitle>New business project</DrawerTitle>
             <DrawerDescription>
@@ -554,11 +628,74 @@ function CreateWorkspaceButton({
                 value={capabilities}
                 onChange={setCapabilities}
               />
+              <div className="grid gap-4">
+                <div>
+                  <div className="text-sm font-medium">Project LLM key</div>
+                  <p className="text-sm text-muted-foreground">
+                    Saved before the first chatbot is created.
+                  </p>
+                </div>
+                <Field>
+                  <FieldLabel>LLM API key</FieldLabel>
+                  <Input
+                    autoComplete="off"
+                    placeholder="sk-..."
+                    type="password"
+                    value={llmApiKey}
+                    onChange={(event) => setLlmApiKey(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>LLM base URL</FieldLabel>
+                  <Input
+                    value={llmBaseUrl}
+                    onChange={(event) => setLlmBaseUrl(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>LLM model</FieldLabel>
+                  <Input
+                    value={llmModel}
+                    onChange={(event) => setLlmModel(event.target.value)}
+                  />
+                </Field>
+              </div>
+              <Alert variant={embeddingReady ? "default" : "destructive"}>
+                <Server data-icon="inline-start" />
+                <AlertTitle>Embedding runtime</AlertTitle>
+                <AlertDescription className="flex flex-col gap-2">
+                  {embeddingLoading
+                    ? "Checking local BGE embedder health..."
+                    : embeddingStatus
+                      ? `${embeddingStatus.model} · ${embeddingStatus.dimension} dimensions · ${embeddingStatus.embedderUrl ?? "embedder URL missing"}`
+                      : "Embedding runtime status is unavailable."}
+                  {embeddingStatus?.detail && <span>{embeddingStatus.detail}</span>}
+                  {embeddingStatus?.probe?.detail && (
+                    <span>{embeddingStatus.probe.detail}</span>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={embeddingReady ? "secondary" : "outline"}>
+                      {embeddingStatus?.provider ?? "unknown"}
+                    </Badge>
+                    <Badge variant={embeddingReady ? "secondary" : "outline"}>
+                      {embeddingReady ? "healthy" : "not ready"}
+                    </Badge>
+                  </div>
+                </AlertDescription>
+              </Alert>
             </FieldGroup>
           </div>
           <DrawerFooter>
             <Button
-              disabled={!projectName.trim() || !chatbotName.trim() || saving}
+              disabled={
+                !projectName.trim() ||
+                !chatbotName.trim() ||
+                !llmApiKey.trim() ||
+                !llmBaseUrl.trim() ||
+                !llmModel.trim() ||
+                !embeddingReady ||
+                saving
+              }
               onClick={createWorkspace}
             >
               {saving ? "Creating..." : "Create project"}
@@ -1255,6 +1392,10 @@ export function CapabilityPicker({
   value: string[]
   onChange: (value: string[]) => void
 }) {
+  const [openCapabilityDetails, setOpenCapabilityDetails] = useState<
+    string | null
+  >(null)
+
   return (
     <Field>
       <FieldLabel>Capabilities</FieldLabel>
@@ -1264,7 +1405,7 @@ export function CapabilityPicker({
           return (
             <Field
               key={option.value}
-              className="items-start gap-2 rounded-2xl border border-border/60 px-3 py-2"
+              className="items-center gap-3 rounded-2xl border border-border/60 px-3 py-3"
               data-disabled={disabled || undefined}
               orientation="horizontal"
             >
@@ -1277,14 +1418,60 @@ export function CapabilityPicker({
                   else onChange(value.filter((item) => item !== option.value))
                 }}
               />
-              <FieldLabel
-                className="mb-0 flex min-w-0 flex-col gap-1 font-normal"
-                htmlFor={`capability-${option.value}`}
+              <HoverCard
+                open={openCapabilityDetails === option.value}
+                onOpenChange={(open) => {
+                  setOpenCapabilityDetails(open ? option.value : null)
+                }}
               >
-                <span>{option.label}</span>
-                <span className="text-xs font-normal text-muted-foreground">{option.description}</span>
-                <span className="text-xs font-normal text-muted-foreground">Enables: {option.tools.join(", ")}</span>
-              </FieldLabel>
+                <FieldLabel
+                  className="mb-0 min-w-0 flex-1 font-normal"
+                  htmlFor={`capability-${option.value}`}
+                >
+                  <span className="truncate font-medium">{option.label}</span>
+                </FieldLabel>
+                <HoverCardTrigger
+                  aria-label={`${option.label} details`}
+                  className="flex size-5 shrink-0 cursor-help items-center justify-center rounded-full border border-border text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [&_svg]:size-3"
+                  href={`#capability-${option.value}-details`}
+                  onBlur={() => setOpenCapabilityDetails(null)}
+                  onClick={(event) => event.preventDefault()}
+                  onFocus={() => setOpenCapabilityDetails(option.value)}
+                  onMouseEnter={() => setOpenCapabilityDetails(option.value)}
+                  onMouseLeave={() => setOpenCapabilityDetails(null)}
+                >
+                  <CircleHelp aria-hidden="true" data-icon="inline-start" />
+                </HoverCardTrigger>
+                <HoverCardContent
+                  align="center"
+                  className="w-80"
+                  side="left"
+                  sideOffset={10}
+                  onMouseEnter={() => setOpenCapabilityDetails(option.value)}
+                  onMouseLeave={() => setOpenCapabilityDetails(null)}
+                >
+                  <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <p className="font-medium">{option.label}</p>
+                      <p className="text-sm/relaxed text-muted-foreground">
+                        {option.description}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Enabled tools
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {option.tools.map((tool) => (
+                          <Badge key={tool} variant="secondary">
+                            {tool}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </HoverCardContent>
+              </HoverCard>
             </Field>
           )
         })}
