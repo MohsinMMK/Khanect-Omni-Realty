@@ -3,6 +3,7 @@ import { createInMemoryProductionChatbotStore, type ProductionChatbotStore } fro
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { buildApi } from "../src/app.js"
+import type { WebsiteInstallFetcher } from "../src/website-install-fetch.js"
 
 const originalFetch = globalThis.fetch
 
@@ -12,6 +13,51 @@ afterEach(() => {
 })
 
 describe("Production website chatbot platform", () => {
+  it("does not let query strings or route parameters select a weaker auth boundary", async () => {
+    const store = createInMemoryProductionChatbotStore()
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: store,
+      ragIndexEnqueuer: async () => undefined,
+      config: loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
+        ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
+        ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
+      }),
+    })
+    try {
+      for (const query of ["?next=/widget/", "?next=/internal/agent-tools/", "?next=/admin/bootstrap"]) {
+        for (const method of ["GET", "POST"] as const) {
+          const response = await app.inject({
+            method,
+            url: `/api/v1/admin/projects${query}`,
+            payload: method === "POST" ? { name: "Unauthorized", domain: "unauthorized.example" } : undefined,
+          })
+          expect(response.statusCode).toBe(401)
+          expect(response.json()).toMatchObject({ error: { code: "ADMIN_AUTH_REQUIRED" } })
+        }
+      }
+      const encodedParameter = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/chatbots/%2Fwidget%2F/connectors",
+      })
+      expect(encodedParameter.statusCode).toBe(401)
+      expect(await store.listProjects()).toEqual([])
+      const accepted = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/projects?next=/internal/agent-tools/",
+        headers: { "x-khanect-admin-api-key": "real_admin_api_key_value_with_more_than_32_chars" },
+      })
+      expect(accepted.statusCode).toBe(200)
+    } finally {
+      await app.close()
+    }
+  })
+
   it("requires the configured admin api key for production platform routes", async () => {
     const app = await buildApi({
       logger: false,
@@ -756,7 +802,7 @@ describe("Production website chatbot platform", () => {
     const project = (await app.inject({
       method: "POST",
       url: "/api/v1/admin/projects",
-      payload: { name: "Install Verify", domain: "127.0.0.1" },
+      payload: { name: "Install Verify", domain: "install.example" },
     })).json().project
     const chatbot = (await app.inject({
       method: "POST",
@@ -771,19 +817,26 @@ describe("Production website chatbot platform", () => {
 
     await app.close()
 
+    const installFetcher = vi.fn<WebsiteInstallFetcher>(async (_url, init) => {
+      expect(init?.redirect).toBe("error")
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return new Response(`<html><body>${connectors.deployment.installSnippet}</body></html>`, {
+        headers: { "content-type": "text/html" },
+      })
+    })
+    const installLookup = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }])
     const verifyApp = await buildApi({
       logger: false,
       staticAssets: { enabled: false },
       productionChatbotStore: store,
-      websiteInstallFetcher: async () => new Response(`<html><body>${connectors.deployment.installSnippet}</body></html>`, {
-        headers: { "content-type": "text/html" },
-      }),
+      websiteInstallFetcher: installFetcher,
+      websiteInstallLookup: installLookup,
     })
 
     const verifyResponse = await verifyApp.inject({
       method: "POST",
       url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
-      payload: { websiteUrl: "https://127.0.0.1" },
+      payload: { websiteUrl: "https://install.example" },
     })
 
     expect(verifyResponse.statusCode).toBe(200)
@@ -791,6 +844,50 @@ describe("Production website chatbot platform", () => {
       verified: true,
       deployment: { installStatus: "installed" },
     })
+    installFetcher.mockRejectedValueOnce(new TypeError("fetch failed: unexpected redirect"))
+    const redirected = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://install.example" },
+    })
+    expect(redirected.statusCode).toBe(502)
+    expect(redirected.json()).toMatchObject({ error: { code: "WEBSITE_VERIFICATION_FAILED" } })
+    expect(installFetcher).toHaveBeenCalledTimes(2)
+
+    // A rejected or failed verification must not overwrite the last known status.
+    expect((await store.listConnectors(chatbot.id))?.deployment.installStatus).toBe("installed")
+    const otherDomain = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://other.example" },
+    })
+    expect(otherDomain.statusCode).toBe(403)
+    expect(installLookup).toHaveBeenCalledTimes(2)
+    await verifyApp.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website`,
+      payload: { allowedDomains: ["127.0.0.1"] },
+    })
+    const privateTarget = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "http://127.0.0.1" },
+    })
+    expect(privateTarget.statusCode).toBe(400)
+    expect(privateTarget.json()).toMatchObject({ error: { code: "WEBSITE_URL_NOT_PUBLIC" } })
+    await verifyApp.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website`,
+      payload: { allowedDomains: [] },
+    })
+    const unconfigured = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://install.example" },
+    })
+    expect(unconfigured.statusCode).toBe(403)
+    expect(installLookup).toHaveBeenCalledTimes(2)
+    expect(installFetcher).toHaveBeenCalledTimes(2)
 
     await verifyApp.close()
   })

@@ -1,0 +1,95 @@
+name: Verify pull request
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Run service and importer tests
+        run: |
+          pnpm test
+          pnpm --filter web test
+      - name: Build browser application
+        run: pnpm --filter web build
+      - name: Validate compose files
+        run: pnpm check:compose
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high
+
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      max-parallel: 1
+      matrix:
+        app: [agno-agent, rag-embedder]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install audit tools
+        run: python -m pip install uv pip-audit==2.10.1
+      - name: Install locked test dependencies
+        run: uv sync --directory apps/${{ matrix.app }} --locked --extra dev
+      - name: Run service tests without model downloads
+        run: apps/${{ matrix.app }}/.venv/bin/python -m pytest apps/${{ matrix.app }}/tests -q
+      - name: Audit all locked extras
+        run: |
+          uv export --directory apps/${{ matrix.app }} --frozen --all-extras --no-emit-project > "$RUNNER_TEMP/locked-requirements.txt"
+          pip-audit --disable-pip --no-deps --requirement "$RUNNER_TEMP/locked-requirements.txt"
+
+  production-python-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build locked Agno production image
+        run: docker build --pull -f apps/agno-agent/Dockerfile -t maintenance-agno:ci .
+      - name: Check installed Agno runtime
+        run: |
+          trap 'docker rm -f maintenance-agno-ci >/dev/null 2>&1 || true' EXIT
+          timeout 600s docker run -i --rm --name maintenance-agno-ci --network=none \
+            --cpus=2 --memory=3g --memory-swap=3g --pids-limit=256 \
+            --entrypoint /app/.venv/bin/python maintenance-agno:ci - agno-agent \
+            < scripts/smoke-production-python.py
+      - name: Build locked embedder production image
+        run: docker build --pull -f apps/rag-embedder/Dockerfile -t maintenance-embedder:ci .
+      - name: Check native imports and real production BGE inference
+        run: |
+          trap 'docker rm -f maintenance-embedder-ci >/dev/null 2>&1 || true' EXIT
+          timeout 600s docker run -i --rm --name maintenance-embedder-ci \
+            --cpus=2 --memory=3g --memory-swap=3g --pids-limit=256 --env OMP_NUM_THREADS=2 \
+            --entrypoint /app/.venv/bin/python maintenance-embedder:ci - rag-embedder \
+            < scripts/smoke-production-python.py
+      - name: Clean up smoke containers
+        if: always()
+        run: docker rm -f maintenance-agno-ci maintenance-embedder-ci >/dev/null 2>&1 || true

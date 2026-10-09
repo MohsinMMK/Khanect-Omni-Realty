@@ -18,6 +18,7 @@ import {
 } from "../admin-auth.js"
 import { probeProjectEmbedding, runProjectEmbeddingSmokeTest, runProjectLlmSmokeTest } from "../project-ai-admin.js"
 import type { RagIndexEnqueuer } from "../rag-index-enqueuer.js"
+import { fetchPublicWebsite, WebsiteUrlNotPublicError, type WebsiteInstallFetcher, type WebsiteInstallLookup } from "../website-install-fetch.js"
 
 interface PlatformRoutesOptions {
   store: ProductionChatbotStore
@@ -25,7 +26,8 @@ interface PlatformRoutesOptions {
   adminAuth: AdminAuthOptions
   agnoServiceToken?: string
   ragIndexEnqueuer?: RagIndexEnqueuer
-  websiteInstallFetcher?: typeof fetch
+  websiteInstallFetcher?: WebsiteInstallFetcher
+  websiteInstallLookup?: WebsiteInstallLookup
   widgetRateLimit?: {
     maxMessages: number
     windowMs: number
@@ -41,7 +43,9 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
     const widgetRateLimit = createWidgetRateLimiter(widgetRateLimitConfig)
 
     app.addHook("preHandler", async (request, reply) => {
-      if (request.url.includes("/internal/agent-tools/")) {
+      // Classify the matched route, never caller-controlled query/parameter text.
+      const routePath = request.routeOptions.url ?? ""
+      if (routePath.startsWith("/api/v1/internal/agent-tools/")) {
         const expected = options.agnoServiceToken
         const authorization = request.headers.authorization
         if (!expected || authorization !== `Bearer ${expected}`) {
@@ -54,7 +58,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
         return
       }
-      if (request.url.includes("/admin/bootstrap")) {
+      if (routePath === "/api/v1/admin/bootstrap") {
         if (!isAdminApiKeyAuthorized(request.headers, options.adminAuth.adminApiKey)) {
           return reply.status(401).send({
             error: {
@@ -65,7 +69,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
         return
       }
-      if (!request.url.includes("/widget/")) {
+      if (!routePath.startsWith("/api/v1/widget/")) {
         const authResult = await resolveAdminAuth(request.headers, options.adminAuth)
         if (!authResult.authorized) {
           return sendAdminAuthRequired(reply, options.adminAuth.betterAuthEnabled)
@@ -662,7 +666,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
       if (!result) return reply.status(404).send({ error: { code: "NOT_FOUND", message: "Chatbot not found" } })
       const parsed = parseWebsiteUrl(body.websiteUrl)
       if (!parsed) return reply.status(400).send({ error: { code: "VALIDATION_ERROR", message: "websiteUrl must be an http or https URL" } })
-      if (!domainAllowed(parsed.hostname, result.deployment.allowedDomains)) {
+      if (result.deployment.allowedDomains.length === 0 || !domainAllowed(parsed.hostname, result.deployment.allowedDomains)) {
         return reply.status(403).send({
           error: {
             code: "DOMAIN_NOT_ALLOWED",
@@ -670,9 +674,22 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
           },
         })
       }
-      const fetcher = options.websiteInstallFetcher ?? fetch
-      const response = await fetcher(parsed.toString(), { redirect: "follow" })
-      const html = await response.text()
+      let response: Awaited<ReturnType<typeof fetchPublicWebsite>>
+      try {
+        response = await fetchPublicWebsite(parsed, {
+          fetcher: options.websiteInstallFetcher,
+          lookup: options.websiteInstallLookup,
+        })
+      } catch (error) {
+        const invalid = error instanceof WebsiteUrlNotPublicError
+        return reply.status(invalid ? 400 : 502).send({
+          error: {
+            code: invalid ? "WEBSITE_URL_NOT_PUBLIC" : "WEBSITE_VERIFICATION_FAILED",
+            message: invalid ? error.message : "Could not verify the public website within the time and page-size limits.",
+          },
+        })
+      }
+      const { html } = response
       const verified = response.ok && html.includes(`/widget/${result.deployment.publicKey}/widget.js`)
       const deployment = await options.store.updateWebsiteInstallStatus(chatbotId, verified ? "installed" : "unverified")
       return {
