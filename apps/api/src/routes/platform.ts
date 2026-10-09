@@ -41,7 +41,9 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
     const widgetRateLimit = createWidgetRateLimiter(widgetRateLimitConfig)
 
     app.addHook("preHandler", async (request, reply) => {
-      if (request.url.includes("/internal/agent-tools/")) {
+      // Classify the matched route, never caller-controlled query/parameter text.
+      const routePath = request.routeOptions.url ?? ""
+      if (routePath.startsWith("/api/v1/internal/agent-tools/")) {
         const expected = options.agnoServiceToken
         const authorization = request.headers.authorization
         if (!expected || authorization !== `Bearer ${expected}`) {
@@ -54,7 +56,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
         return
       }
-      if (request.url.includes("/admin/bootstrap")) {
+      if (routePath === "/api/v1/admin/bootstrap") {
         if (!isAdminApiKeyAuthorized(request.headers, options.adminAuth.adminApiKey)) {
           return reply.status(401).send({
             error: {
@@ -65,7 +67,7 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         }
         return
       }
-      if (!request.url.includes("/widget/")) {
+      if (!routePath.startsWith("/api/v1/widget/")) {
         const authResult = await resolveAdminAuth(request.headers, options.adminAuth)
         if (!authResult.authorized) {
           return sendAdminAuthRequired(reply, options.adminAuth.betterAuthEnabled)
@@ -671,7 +673,8 @@ export function platformRoutes(options: PlatformRoutesOptions): FastifyPluginAsy
         })
       }
       const fetcher = options.websiteInstallFetcher ?? fetch
-      const response = await fetcher(parsed.toString(), { redirect: "follow" })
+      // Redirect destinations have not passed the deployment's domain allowlist.
+      const response = await fetcher(parsed.toString(), { redirect: "error", signal: AbortSignal.timeout(10_000) })
       const html = await response.text()
       const verified = response.ok && html.includes(`/widget/${result.deployment.publicKey}/widget.js`)
       const deployment = await options.store.updateWebsiteInstallStatus(chatbotId, verified ? "installed" : "unverified")

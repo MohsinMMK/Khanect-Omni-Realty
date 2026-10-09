@@ -12,6 +12,51 @@ afterEach(() => {
 })
 
 describe("Production website chatbot platform", () => {
+  it("does not let query strings or route parameters select a weaker auth boundary", async () => {
+    const store = createInMemoryProductionChatbotStore()
+    const app = await buildApi({
+      logger: false,
+      staticAssets: { enabled: false },
+      productionChatbotStore: store,
+      ragIndexEnqueuer: async () => undefined,
+      config: loadConfig({
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "real_production_secret_value_with_more_than_32_chars",
+        ENCRYPTION_KEY: "real_encryption_secret_value_with_more_than_32_chars",
+        ADMIN_API_KEY: "real_admin_api_key_value_with_more_than_32_chars",
+        EMBEDDING_PROVIDER: "local",
+        EMBEDDER_URL: "http://rag-embedder:8080",
+      }),
+    })
+    try {
+      for (const query of ["?next=/widget/", "?next=/internal/agent-tools/", "?next=/admin/bootstrap"]) {
+        for (const method of ["GET", "POST"] as const) {
+          const response = await app.inject({
+            method,
+            url: `/api/v1/admin/projects${query}`,
+            payload: method === "POST" ? { name: "Unauthorized", domain: "unauthorized.example" } : undefined,
+          })
+          expect(response.statusCode).toBe(401)
+          expect(response.json()).toMatchObject({ error: { code: "ADMIN_AUTH_REQUIRED" } })
+        }
+      }
+      const encodedParameter = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/chatbots/%2Fwidget%2F/connectors",
+      })
+      expect(encodedParameter.statusCode).toBe(401)
+      expect(await store.listProjects()).toEqual([])
+      const accepted = await app.inject({
+        method: "GET",
+        url: "/api/v1/admin/projects?next=/internal/agent-tools/",
+        headers: { "x-khanect-admin-api-key": "real_admin_api_key_value_with_more_than_32_chars" },
+      })
+      expect(accepted.statusCode).toBe(200)
+    } finally {
+      await app.close()
+    }
+  })
+
   it("requires the configured admin api key for production platform routes", async () => {
     const app = await buildApi({
       logger: false,
@@ -771,13 +816,18 @@ describe("Production website chatbot platform", () => {
 
     await app.close()
 
+    const installFetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      expect(init?.redirect).toBe("error")
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return new Response(`<html><body>${connectors.deployment.installSnippet}</body></html>`, {
+        headers: { "content-type": "text/html" },
+      })
+    })
     const verifyApp = await buildApi({
       logger: false,
       staticAssets: { enabled: false },
       productionChatbotStore: store,
-      websiteInstallFetcher: async () => new Response(`<html><body>${connectors.deployment.installSnippet}</body></html>`, {
-        headers: { "content-type": "text/html" },
-      }),
+      websiteInstallFetcher: installFetcher,
     })
 
     const verifyResponse = await verifyApp.inject({
@@ -791,6 +841,15 @@ describe("Production website chatbot platform", () => {
       verified: true,
       deployment: { installStatus: "installed" },
     })
+    installFetcher.mockRejectedValueOnce(new TypeError("fetch failed: unexpected redirect"))
+    const redirected = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://127.0.0.1" },
+    })
+    expect(redirected.statusCode).toBe(500)
+    expect(redirected.json()).toMatchObject({ error: { message: "Internal server error" } })
+    expect(installFetcher).toHaveBeenCalledTimes(2)
 
     await verifyApp.close()
   })

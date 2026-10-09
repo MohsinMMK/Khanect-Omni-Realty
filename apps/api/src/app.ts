@@ -193,7 +193,6 @@ async function registerStaticAssets(
   await app.register(fastifyStatic, {
     root,
     prefix: "/",
-    decorateReply: false,
   })
 
   app.setNotFoundHandler((request, reply) => {
