@@ -64,3 +64,32 @@ jobs:
         run: |
           uv export --directory apps/${{ matrix.app }} --frozen --all-extras --no-emit-project > "$RUNNER_TEMP/locked-requirements.txt"
           pip-audit --disable-pip --no-deps --requirement "$RUNNER_TEMP/locked-requirements.txt"
+
+  production-python-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build locked Agno production image
+        run: docker build --pull -f apps/agno-agent/Dockerfile -t maintenance-agno:ci .
+      - name: Check installed Agno runtime
+        run: |
+          trap 'docker rm -f maintenance-agno-ci >/dev/null 2>&1 || true' EXIT
+          timeout 600s docker run -i --rm --name maintenance-agno-ci --network=none \
+            --cpus=2 --memory=3g --memory-swap=3g --pids-limit=256 \
+            --entrypoint /app/.venv/bin/python maintenance-agno:ci - agno-agent \
+            < scripts/smoke-production-python.py
+      - name: Build locked embedder production image
+        run: docker build --pull -f apps/rag-embedder/Dockerfile -t maintenance-embedder:ci .
+      - name: Check native imports and real production BGE inference
+        run: |
+          trap 'docker rm -f maintenance-embedder-ci >/dev/null 2>&1 || true' EXIT
+          timeout 600s docker run -i --rm --name maintenance-embedder-ci \
+            --cpus=2 --memory=3g --memory-swap=3g --pids-limit=256 --env OMP_NUM_THREADS=2 \
+            --entrypoint /app/.venv/bin/python maintenance-embedder:ci - rag-embedder \
+            < scripts/smoke-production-python.py
+      - name: Clean up smoke containers
+        if: always()
+        run: docker rm -f maintenance-agno-ci maintenance-embedder-ci >/dev/null 2>&1 || true
