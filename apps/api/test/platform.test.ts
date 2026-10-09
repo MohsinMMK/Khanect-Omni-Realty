@@ -3,6 +3,7 @@ import { createInMemoryProductionChatbotStore, type ProductionChatbotStore } fro
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { buildApi } from "../src/app.js"
+import type { WebsiteInstallFetcher } from "../src/website-install-fetch.js"
 
 const originalFetch = globalThis.fetch
 
@@ -801,7 +802,7 @@ describe("Production website chatbot platform", () => {
     const project = (await app.inject({
       method: "POST",
       url: "/api/v1/admin/projects",
-      payload: { name: "Install Verify", domain: "127.0.0.1" },
+      payload: { name: "Install Verify", domain: "install.example" },
     })).json().project
     const chatbot = (await app.inject({
       method: "POST",
@@ -816,24 +817,26 @@ describe("Production website chatbot platform", () => {
 
     await app.close()
 
-    const installFetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const installFetcher = vi.fn<WebsiteInstallFetcher>(async (_url, init) => {
       expect(init?.redirect).toBe("error")
       expect(init?.signal).toBeInstanceOf(AbortSignal)
       return new Response(`<html><body>${connectors.deployment.installSnippet}</body></html>`, {
         headers: { "content-type": "text/html" },
       })
     })
+    const installLookup = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }])
     const verifyApp = await buildApi({
       logger: false,
       staticAssets: { enabled: false },
       productionChatbotStore: store,
       websiteInstallFetcher: installFetcher,
+      websiteInstallLookup: installLookup,
     })
 
     const verifyResponse = await verifyApp.inject({
       method: "POST",
       url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
-      payload: { websiteUrl: "https://127.0.0.1" },
+      payload: { websiteUrl: "https://install.example" },
     })
 
     expect(verifyResponse.statusCode).toBe(200)
@@ -845,10 +848,45 @@ describe("Production website chatbot platform", () => {
     const redirected = await verifyApp.inject({
       method: "POST",
       url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
-      payload: { websiteUrl: "https://127.0.0.1" },
+      payload: { websiteUrl: "https://install.example" },
     })
-    expect(redirected.statusCode).toBe(500)
-    expect(redirected.json()).toMatchObject({ error: { message: "Internal server error" } })
+    expect(redirected.statusCode).toBe(502)
+    expect(redirected.json()).toMatchObject({ error: { code: "WEBSITE_VERIFICATION_FAILED" } })
+    expect(installFetcher).toHaveBeenCalledTimes(2)
+
+    // A rejected or failed verification must not overwrite the last known status.
+    expect((await store.listConnectors(chatbot.id))?.deployment.installStatus).toBe("installed")
+    const otherDomain = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://other.example" },
+    })
+    expect(otherDomain.statusCode).toBe(403)
+    expect(installLookup).toHaveBeenCalledTimes(2)
+    await verifyApp.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website`,
+      payload: { allowedDomains: ["127.0.0.1"] },
+    })
+    const privateTarget = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "http://127.0.0.1" },
+    })
+    expect(privateTarget.statusCode).toBe(400)
+    expect(privateTarget.json()).toMatchObject({ error: { code: "WEBSITE_URL_NOT_PUBLIC" } })
+    await verifyApp.inject({
+      method: "PATCH",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website`,
+      payload: { allowedDomains: [] },
+    })
+    const unconfigured = await verifyApp.inject({
+      method: "POST",
+      url: `/api/v1/admin/chatbots/${chatbot.id}/connectors/website/verify`,
+      payload: { websiteUrl: "https://install.example" },
+    })
+    expect(unconfigured.statusCode).toBe(403)
+    expect(installLookup).toHaveBeenCalledTimes(2)
     expect(installFetcher).toHaveBeenCalledTimes(2)
 
     await verifyApp.close()

@@ -146,6 +146,14 @@ docker compose --profile local-prod down
 
 ## Common commands
 
+Website installation verification requires a configured allowed domain and a public
+HTTP(S) website on port 80 or 443, without URL credentials. It rejects redirects,
+private/reserved IP addresses and mixed public/private DNS answers, and pins the
+validated DNS snapshot to the connection. Verification has a 10-second deadline
+and a 2 MiB decoded HTML limit. A rejected or failed check preserves the previous
+installation status. Local/intranet websites need a separate approved verification
+method; the API does not fetch them.
+
 Run from repo root unless filtered.
 
 ```bash

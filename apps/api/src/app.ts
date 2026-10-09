@@ -28,6 +28,7 @@ import { platformRoutes } from "./routes/platform.js"
 import { createConfiguredAnswerProvider } from "./llm.js"
 import { createAgnoAnswerProvider } from "./agno.js"
 import { createRagIndexEnqueuer, type RagIndexEnqueuer } from "./rag-index-enqueuer.js"
+import type { WebsiteInstallFetcher, WebsiteInstallLookup } from "./website-install-fetch.js"
 
 export interface StaticAssetsOptions {
   enabled?: boolean
@@ -44,7 +45,8 @@ export interface BuildApiOptions {
   phase1aStore?: Phase1aStore
   productionChatbotStore?: ProductionChatbotStore
   ragIndexEnqueuer?: RagIndexEnqueuer
-  websiteInstallFetcher?: typeof fetch
+  websiteInstallFetcher?: WebsiteInstallFetcher
+  websiteInstallLookup?: WebsiteInstallLookup
   metaFetchImpl?: typeof fetch
   readinessProbe?: ReadinessRouteOptions["probe"]
   widgetRateLimit?: {
@@ -140,6 +142,7 @@ export async function buildApi(options: BuildApiOptions = {}) {
     agnoServiceToken: config.agno.serviceToken,
     ragIndexEnqueuer,
     websiteInstallFetcher: options.websiteInstallFetcher,
+    websiteInstallLookup: options.websiteInstallLookup,
     widgetRateLimit: options.widgetRateLimit ?? widgetRateLimit,
   }), {
     prefix: "/api/v1",
